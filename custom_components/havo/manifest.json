@@ -1,0 +1,14 @@
+{
+  "domain": "havo",
+  "name": "Havo",
+  "codeowners": ["@Gnol86"],
+  "config_flow": true,
+  "dependencies": ["fan", "frontend", "http", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/Gnol86/Havo",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/Gnol86/Havo/issues",
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

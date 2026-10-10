@@ -1,0 +1,49 @@
+{
+  "title": "Havo",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Havo",
+        "description": "Configure your home ventilation in the Havo sidebar panel."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Only one Havo installation is needed.",
+      "already_in_progress": "Setup is already in progress."
+    }
+  },
+  "entity": {
+    "switch": {
+      "automation": {
+        "name": "Automatic ventilation"
+      }
+    },
+    "button": {
+      "resume": {
+        "name": "Resume automation"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Ventilation status",
+        "state": {
+          "disabled": "Automation disabled",
+          "idle": "At rest",
+          "background": "Background ventilation",
+          "temperature": "Temperature demand",
+          "humidity": "Humidity extraction",
+          "manual_pause": "Manual hold",
+          "minimum_run": "Minimum running time",
+          "minimum_rest": "Minimum resting time",
+          "fan_unavailable": "Fan unavailable",
+          "sensor_unavailable": "Required sensor unavailable",
+          "speed_unsupported": "Speed control unavailable",
+          "on_unsupported": "Turning on unsupported",
+          "off_unsupported": "Turning off unsupported",
+          "command_failed": "Command failed",
+          "initializing": "Initializing"
+        }
+      }
+    }
+  }
+}

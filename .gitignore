@@ -1,0 +1,26 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+.DS_Store
+.env
+.env.*
+!.env.example
+config/
+tmp/
+node_modules/
+
+# Local agent instructions and product/design working documents
+/AGENTS.md
+/DESIGN.md
+/PRODUCT.md
+/PROJET.md
+
+# Local Impeccable review evidence and decision server logs
+.impeccable/questions/
+.impeccable/review/
+.impeccable/hook.cache.json
