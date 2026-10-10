@@ -259,7 +259,7 @@ test("keyboard tab navigation and dark theme", async () => {
   await settle(panel);
   assert.equal(
     panel.shadowRoot!.querySelector('[role="tab"][aria-selected="true"]')!
-      .textContent,
+      .textContent?.trim(),
     "Ventilations",
   );
   panel.hass = { ...hass, themes: { darkMode: true } };
