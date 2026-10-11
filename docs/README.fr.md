@@ -15,6 +15,7 @@ Havo pilote les entités `fan` existantes depuis un panneau intégré à Home As
 - Capteurs extérieurs prioritaires sur la météo et fonctionnement dégradé explicite si des mesures manquent.
 - Panneau adaptatif suivant le thème Home Assistant, en anglais et français.
 - Interrupteur d’automatisation, bouton de reprise et capteur d’état par ventilation.
+- Entrées dans l’activité native identifiant Havo, la commande demandée et son motif.
 - Stockage validé et versionné, configuration administrateur et droits de commande vérifiés côté serveur.
 
 ## Installation
@@ -92,6 +93,16 @@ Le moteur réagit aux mesures, recalcule toutes les 30 secondes et se réveille 
 En mode humidité, l’absence de données extérieures ou de température intérieure fait revenir aux seuils fixes. Sans mesure principale — température en mode température, humidité en mode confort — les décisions sont suspendues et l’état matériel conservé. Valeurs et unités invalides sont rejetées.
 
 Un changement externe de marche, de vitesse ou de mode prédéfini suspend uniquement la ventilation concernée. Havo reconnaît ses contextes de commande et utilise une courte fenêtre d’acquittement correspondant à la cible pour les intégrations qui perdent ce contexte. Les commandes manuelles priment sur les durées automatiques minimales. Désactiver l’automatisation, supprimer une ventilation ou décharger Havo conserve l’état matériel.
+
+## Activité des commandes
+
+Ouvre l’**Activité** native d’une ventilation pour retrouver par exemple **Havo : mise en marche demandée — extraction d’humidité** ou **Havo : vitesse de 33 % demandée — ventilation de fond**. Un appareil marche/arrêt ne reçoit jamais de pourcentage ; les entrées de vitesse indiquent la cible réellement envoyée après adaptation aux paliers de l’appareil.
+
+Le motif provient du moteur au moment de la commande : refroidissement, extraction d’humidité, ventilation de fond, retour au repos, durée minimale de marche/repos ou commande manuelle dans Havo. Un recalcul sans commande et une intervention externe ne créent pas d’entrée de commande Havo. Un appel en échec ou expiré ajoute une erreur explicite ; une demande ne prouve jamais le changement d’état physique de l’appareil.
+
+Havo fournit un événement d’origine et une entrée standard associée à la ventilation. Le détail natif peut attribuer le changement d’état à **Havo — motif** si l’intégration de l’appareil conserve le contexte de commande. Si elle le perd, la demande Havo reste dans l’activité du ventilateur, mais le lien avec le changement physique ne peut pas être établi de façon fiable. Les ajustements de vitesse restent visibles même si Home Assistant n’affiche pas de transition d’état distincte. Le journal global non filtré peut afficher à la fois l’origine et l’entrée de demande.
+
+[Activity/Logbook](https://www.home-assistant.io/integrations/logbook/) et Recorder doivent être activés, et leurs filtres doivent inclure la ventilation et les événements Havo. L’ancien historique n’est pas complété. Les messages utilisent la langue configurée sur le serveur Home Assistant — anglais ou français, variantes régionales comprises — indépendamment de la langue de chaque lecteur. Les noms personnalisés des entités sont conservés.
 
 ## Développement et validation
 

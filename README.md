@@ -15,6 +15,7 @@ Havo manages existing `fan` entities from one embedded panel. Use room temperatu
 - Outdoor sensor priority with weather fallback; explicit degraded operation when readings are missing.
 - An embedded, responsive panel following the Home Assistant theme, in English or French.
 - Native automation switch, resume button and status sensor for every configured ventilation.
+- Native Activity entries identifying Havo, the requested command and its reason.
 - Validated, versioned storage, administrator-only configuration and server-side control permissions.
 
 ## Installation
@@ -94,6 +95,16 @@ The engine reacts to state changes, reevaluates every 30 seconds and schedules d
 If outdoor data or the indoor temperature is missing in humidity mode, Havo uses the fixed reference/rest thresholds. If the primary measurement is missing—indoor temperature in temperature mode or humidity in humidity mode—Havo freezes automatic decisions and preserves the fan state. Invalid values and units are rejected.
 
 External changes to power, percentage or preset mode pause only the affected ventilation. Havo recognizes its own command contexts and uses a short matching acknowledgement window for integrations that omit them. Manual commands take priority over minimum automatic run/rest times. Disabling automation, removing a ventilation or unloading Havo leaves physical fan states intact.
+
+## Command activity
+
+Open a fan's native **Activity** view to see requests such as **Havo: turn-on requested — humidity extraction** or **Havo: speed of 33% requested — background ventilation**. On/off fans never receive a percentage; speed entries contain the actual target after adjustment to the fan's supported steps.
+
+Reasons come from the engine at dispatch: cooling, humidity extraction, background ventilation, return to rest, minimum running/resting time, or a manual command in Havo. Recalculations without a command and external manual changes do not create Havo command entries. Failed or timed-out service calls add an explicit error entry; a request never proves that the device physically changed state.
+
+Havo supplies an origin event and a standard entry associated with the fan. The native details can attribute a state change to **Havo — reason** when the device integration preserves the command context. If it drops that context, the Havo request remains in the fan's Activity but the physical change cannot reliably be linked to it. Speed-only changes are covered by the request entry even when Home Assistant does not show a separate state transition. The unfiltered Activity feed may show both the origin and request entries.
+
+[Activity/Logbook](https://www.home-assistant.io/integrations/logbook/) and Recorder must be enabled, with the fan and Havo events included in their filters. Existing history is not backfilled. Messages are recorded in the Home Assistant server's configured language (English, or French including regional variants), independently of each viewer's language. User-defined entity names are preserved.
 
 ## Development and validation
 

@@ -11,6 +11,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
+from .activity import async_record_command
 from .climate import evaluate
 from .fans import capabilities, percentage, signature
 
@@ -136,7 +137,7 @@ class VentilationEngine:
         await self.manager.persist()
         await self.evaluate()
 
-    async def issue(self, command, target=None, context=None):
+    async def issue(self, command, target=None, context=None, *, reason):
         """Issue one capability-checked call, shared by manual and automatic paths."""
         state = self.hass.states.get(self.config["entity_id"])
         caps = capabilities(state)
@@ -157,10 +158,23 @@ class VentilationEngine:
             expected = target
         else:
             raise ValueError("invalid_command")
-        call_context = context or Context()
+        # Keep the human caller and lineage while giving each Havo request its
+        # own origin, even if the caller's context already has an origin event.
+        call_context = Context(
+            parent_id=context.id if context else None,
+            user_id=context.user_id if context else None,
+        )
         now = dt_util.utcnow().timestamp()
         self._contexts[call_context.id] = now + 30
         self._expected = now + 15, expected
+        async_record_command(
+            self.hass,
+            call_context,
+            data["entity_id"],
+            command,
+            reason,
+            data.get("percentage"),
+        )
         try:
             async with asyncio.timeout(10):
                 await self.hass.services.async_call(
@@ -168,13 +182,22 @@ class VentilationEngine:
                 )
         except Exception:
             self._expected = None
+            async_record_command(
+                self.hass,
+                call_context,
+                data["entity_id"],
+                command,
+                reason,
+                data.get("percentage"),
+                failed=True,
+            )
             raise
 
     async def manual(self, command, target=None, context=None):
         # Publish the hold before waiting for any earlier automatic service call.
         await self.pause()
         async with self._lock:
-            await self.issue(command, target, context)
+            await self.issue(command, target, context, reason="manual")
         await self.evaluate()
 
     async def evaluate(self):
@@ -249,19 +272,20 @@ class VentilationEngine:
                     )
                     self.status["target_percentage"] = target
                 generation = self._generation
+                reason = self.status["reason"]
                 try:
                     if target == 0:
                         if state.state != "off":
-                            await self.issue("turn_off")
+                            await self.issue("turn_off", reason=reason)
                     elif caps.speed:
                         if (
                             state.state != "on"
                             or state.attributes.get("percentage") != target
                             or state.attributes.get("preset_mode")
                         ):
-                            await self.issue("set_percentage", target)
+                            await self.issue("set_percentage", target, reason=reason)
                     elif state.state != "on":
-                        await self.issue("turn_on")
+                        await self.issue("turn_on", reason=reason)
                     if generation == self._generation and not self._stopped:
                         if desired != active:
                             self.runtime.update(active=desired, changed_at=now)
