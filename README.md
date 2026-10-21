@@ -56,7 +56,7 @@ Havo uses the capabilities exposed by your existing fan integrations. It does no
 
 ### With HACS
 
-Havo is available as a **custom repository**:
+Havo is available as a **custom repository**. [Inclusion in the default HACS catalog has been requested](https://github.com/hacs/default/pull/12398) and is awaiting review. Until it is accepted, use the custom repository instructions below.
 
 [![Open Havo in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Gnol86&repository=Havo&category=integration)
 
