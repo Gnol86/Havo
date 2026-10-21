@@ -32,6 +32,7 @@
           "background": "Background ventilation",
           "temperature": "Temperature demand",
           "humidity": "Humidity extraction",
+          "humidity_timeout": "At rest: time below the start threshold elapsed",
           "manual_pause": "Manual hold",
           "minimum_run": "Minimum running time",
           "minimum_rest": "Minimum resting time",

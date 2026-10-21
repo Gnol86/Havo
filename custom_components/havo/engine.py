@@ -29,6 +29,7 @@ class VentilationEngine:
         self._contexts = {}
         self._expected = None
         self._retry_at = 0
+        self._runtime_dirty = False
 
     @property
     def config(self):
@@ -126,10 +127,16 @@ class VentilationEngine:
 
     async def pause(self):
         self._generation += 1
+        self._clear_humidity_timeout()
         self.runtime["pause_until"] = (
             dt_util.utcnow().timestamp() + self.config["manual_pause"]
         )
         await self.manager.persist()
+
+    def _clear_humidity_timeout(self):
+        """Discard a period that no longer represents automatic extraction."""
+        self.runtime.pop("humidity_below_start_since", None)
+        self.runtime.pop("humidity_timeout_reached", None)
 
     async def resume(self):
         self._generation += 1
@@ -208,6 +215,7 @@ class VentilationEngine:
                 self.status = {"reason": "initializing"}
                 return
             now = dt_util.utcnow().timestamp()
+            previous_runtime = self.runtime.copy()
             vent = self.config
             readings = self.manager.readings(self.id)
             state = self.hass.states.get(vent["entity_id"])
@@ -223,8 +231,36 @@ class VentilationEngine:
                 "percentage": state.attributes.get("percentage") if state else None,
                 "pause_until": self.runtime.get("pause_until"),
                 "deadline": None,
+                "humidity_timeout_at": None,
                 "target_percentage": None,
             }
+            humidity_timeout_at = None
+            timeout_allowed = (
+                vent["enabled"]
+                and vent["mode"] == "humidity"
+                and vent["humidity_timeout_enabled"]
+                and self.runtime.get("pause_until", 0) <= now
+                and decision.valid
+                and caps.available
+                and not (vent["background"] and not caps.speed)
+            )
+            if (
+                not timeout_allowed
+                or readings["humidity"] >= decision.on
+                or readings["humidity"] <= decision.off
+            ):
+                self._clear_humidity_timeout()
+            elif active and state.state == "on":
+                since = self.runtime.setdefault("humidity_below_start_since", now)
+                # The limit never overrides the minimum automatic running time.
+                humidity_timeout_at = max(
+                    since + vent["humidity_timeout"],
+                    self.runtime.get("changed_at", 0) + vent["min_on"],
+                )
+                self.status["humidity_timeout_at"] = humidity_timeout_at
+            else:
+                self.runtime.pop("humidity_below_start_since", None)
+            timeout_due = humidity_timeout_at is not None and humidity_timeout_at <= now
             deadline = None
             if not vent["enabled"]:
                 self.status["reason"] = "disabled"
@@ -239,7 +275,7 @@ class VentilationEngine:
             elif self._retry_at > now:
                 self.status["reason"], deadline = "command_failed", self._retry_at
             else:
-                desired = decision.active
+                desired = False if timeout_due else decision.active
                 changed_at = self.runtime.get("changed_at", 0)
                 minimum = vent["min_on"] if active else vent["min_off"]
                 if desired != active and changed_at + minimum > now:
@@ -247,7 +283,12 @@ class VentilationEngine:
                     self.status["reason"] = "minimum_run" if active else "minimum_rest"
                 else:
                     self.status["reason"] = (
-                        "temperature"
+                        "humidity_timeout"
+                        if not desired
+                        and (
+                            timeout_due or self.runtime.get("humidity_timeout_reached")
+                        )
+                        else "temperature"
                         if desired and vent["mode"] == "temperature"
                         else "humidity"
                         if desired
@@ -289,7 +330,10 @@ class VentilationEngine:
                     if generation == self._generation and not self._stopped:
                         if desired != active:
                             self.runtime.update(active=desired, changed_at=now)
-                            await self.manager.persist()
+                        if timeout_due and not desired:
+                            self.runtime["humidity_timeout_reached"] = True
+                            self.runtime.pop("humidity_below_start_since", None)
+                            self.status["humidity_timeout_at"] = None
                         self._retry_at = 0
                 except ValueError as err:
                     self.status["reason"] = str(err)
@@ -302,6 +346,22 @@ class VentilationEngine:
                     self.status["reason"] = "manual_pause"
                     self.status["pause_until"] = self.runtime.get("pause_until")
                     deadline = self.runtime.get("pause_until")
+                    self.status["humidity_timeout_at"] = None
+            self._runtime_dirty |= self.runtime != previous_runtime
+            if self._runtime_dirty and self._retry_at <= now:
+                try:
+                    await self.manager.persist()
+                    self._runtime_dirty = False
+                except Exception:
+                    self.status["reason"] = "command_failed"
+                    self._retry_at = deadline = now + 30
+            # Expose the humidity deadline separately from holds/minimum times.
+            wake_at = deadline
+            if (
+                self.status["humidity_timeout_at"] is not None
+                and self.status["humidity_timeout_at"] > now
+            ):
+                wake_at = min(wake_at or float("inf"), humidity_timeout_at)
             self.status["deadline"] = deadline
-            self._schedule(deadline)
+            self._schedule(wake_at)
             self.manager.notify()

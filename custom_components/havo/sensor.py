@@ -11,6 +11,7 @@ REASONS = [
     "background",
     "temperature",
     "humidity",
+    "humidity_timeout",
     "manual_pause",
     "minimum_run",
     "minimum_rest",

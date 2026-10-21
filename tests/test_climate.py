@@ -11,7 +11,7 @@ from custom_components.havo.climate import (
 from custom_components.havo.models import VENT_DEFAULTS
 
 
-def readings(t=22, h=60, ot=5, oh=90):
+def readings(t=22, h=75, ot=5, oh=90):
     return dict(temperature=t, humidity=h, outdoor_temperature=ot, outdoor_humidity=oh)
 
 
@@ -67,17 +67,17 @@ def test_temperature_hysteresis(temp, active, needed, demand):
 def test_cold_humid_air_is_drier_when_warmed():
     result = evaluate(VENT_DEFAULTS | {"mode": "humidity"}, readings(), False)
     assert result.outdoor_equivalent == pytest.approx(29.7, abs=0.2)
-    assert result.on == pytest.approx(56.75)
-    assert result.off == pytest.approx(51.75)
+    assert result.on == pytest.approx(71.75)
+    assert result.off == pytest.approx(66.75)
     assert result.active
 
 
 def test_warm_wet_air_never_blocks_priority_extraction():
     result = evaluate(
-        VENT_DEFAULTS | {"mode": "humidity"}, readings(24, 65, 28, 75), False
+        VENT_DEFAULTS | {"mode": "humidity"}, readings(24, 80, 28, 75), False
     )
     assert result.outdoor_equivalent > 90
-    assert result.on == 60
+    assert result.on == 75
     assert result.active
 
 
@@ -85,7 +85,7 @@ def test_cold_moderates_anticipation():
     config = VENT_DEFAULTS | {"mode": "humidity"}
     mild = evaluate(config, readings(22, 60, 15, 60), False)
     cold = evaluate(config, readings(22, 60, -5, 90), False)
-    assert 55 <= mild.on < cold.on <= 60
+    assert 70 <= mild.on < cold.on <= 75
 
 
 @pytest.mark.parametrize(
@@ -96,7 +96,7 @@ def test_humidity_fallback(missing):
     values[missing] = None
     result = evaluate(VENT_DEFAULTS | {"mode": "humidity"}, values, False)
     assert result.valid and result.fallback
-    assert (result.on, result.off) == (60, 55)
+    assert (result.on, result.off) == (75, 70)
     assert result.active
 
 

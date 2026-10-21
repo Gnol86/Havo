@@ -17,6 +17,8 @@ export interface Ventilation {
   humidity_on: number;
   humidity_hysteresis: number;
   humidity_full: number;
+  humidity_timeout_enabled: boolean;
+  humidity_timeout: number;
   background: number;
   speed_min: number;
   speed_max: number;
@@ -58,6 +60,7 @@ export interface Status {
   target_percentage?: number | null;
   pause_until?: number | null;
   deadline?: number | null;
+  humidity_timeout_at?: number | null;
   capabilities?: Capabilities;
   readings?: Readings;
   decision?: {

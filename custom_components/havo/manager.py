@@ -127,6 +127,38 @@ class HavoManager:
                 and old.get(vid, (None, {}))[1].get("entity_id")
                 == self.vent(vid)[1]["entity_id"]
             }
+            # Unrelated edits keep elapsed time; a new rule/source starts afresh.
+            for vid, runtime in self.runtime.items():
+                old_room_id, old_vent = old[vid]
+                room_id, vent = self.vent(vid)
+                if (
+                    any(
+                        old_vent[key] != vent[key]
+                        for key in (
+                            "enabled",
+                            "mode",
+                            "humidity_on",
+                            "humidity_hysteresis",
+                            "humidity_timeout_enabled",
+                            "humidity_timeout",
+                        )
+                    )
+                    or any(
+                        previous_config["rooms"][old_room_id][key]
+                        != candidate["rooms"][room_id][key]
+                        for key in ("temperature_entity_id", "humidity_entity_id")
+                    )
+                    or any(
+                        previous_config[key] != candidate[key]
+                        for key in (
+                            "weather_entity_id",
+                            "outdoor_temperature_entity_id",
+                            "outdoor_humidity_entity_id",
+                        )
+                    )
+                ):
+                    runtime.pop("humidity_below_start_since", None)
+                    runtime.pop("humidity_timeout_reached", None)
             self.revision += 1
             try:
                 await self.persist()

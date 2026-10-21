@@ -89,6 +89,17 @@ async def test_atomic_save_and_conflict(house):
     assert "extractor" in manager.engines
 
 
+async def test_saved_humidity_settings_survive_new_defaults_and_reload(hass, house):
+    manager, _calls = house
+    config = deepcopy(manager.config)
+    settings = config["rooms"]["bathroom"]["ventilations"]["extractor"]
+    settings.update(humidity_on=60, humidity_hysteresis=5, humidity_full=75)
+    await manager.save(config, manager.revision)
+    assert await hass.config_entries.async_reload(manager.entry.entry_id)
+    await hass.async_block_till_done()
+    assert manager.entry.runtime_data.config == config
+
+
 async def test_outdoor_source_precedence_and_fallback(hass, house):
     manager, _calls = house
     hass.states.async_set(

@@ -106,6 +106,7 @@ export class HavoPanel extends LitElement {
           background: "backgroundState",
           temperature: "temperatureState",
           humidity: "humidityState",
+          humidity_timeout: "humidityTimeoutState",
           manual_pause: "manual_pauseState",
         } as Record<string, string>
       )[value ?? ""] ??
@@ -287,6 +288,7 @@ export class HavoPanel extends LitElement {
     key: keyof Ventilation & TranslationKey,
     low: number,
     high: number,
+    scale = 1,
   ) {
     return html`<label
       >${this.t(key)}<input
@@ -296,12 +298,12 @@ export class HavoPanel extends LitElement {
         min=${low}
         max=${high}
         data-field=${key}
-        .value=${String(vent[key])}
+        .value=${String(Number(vent[key]) / scale)}
         @input=${(event: Event) => {
           const input = event.target as HTMLInputElement;
           if (input.validity.valid)
             (vent as unknown as Record<string, unknown>)[key] =
-              input.valueAsNumber;
+              input.valueAsNumber * scale;
           this.touch();
         }}
     /></label>`;
@@ -372,6 +374,16 @@ export class HavoPanel extends LitElement {
           ? ` · ${this.t("remaining")} ${remaining} ${this.t("minutes")}`
           : ""}
       </p>
+      ${state.humidity_timeout_at != null
+        ? html`<p class="help" data-status="humidity-timeout">
+            ${this.t("humidityTimeoutRemaining")}
+            ${Math.max(
+              0,
+              Math.ceil((state.humidity_timeout_at - this.now) / 60),
+            )}
+            ${this.t("minutes")}
+          </p>`
+        : nothing}
       <div class="row">
         <button
           ?disabled=${disabled || !caps?.available || !caps.turn_on}
@@ -655,7 +667,26 @@ export class HavoPanel extends LitElement {
                   : nothing}`}
           </div>
           ${vent.mode === "humidity"
-            ? html`<p class="help">${this.t("algorithmHelp")}</p>`
+            ? html`<p class="help">${this.t("algorithmHelp")}</p>
+                <label class="check"
+                  ><input
+                    type="checkbox"
+                    data-field="humidity_timeout_enabled"
+                    .checked=${vent.humidity_timeout_enabled}
+                    @change=${(event: Event) => {
+                      vent.humidity_timeout_enabled = (
+                        event.target as HTMLInputElement
+                      ).checked;
+                      this.touch();
+                    }}
+                  />${this.t("humidity_timeout_enabled")}</label
+                >
+                <p class="help">${this.t("humidityTimeoutHelp")}</p>
+                ${vent.humidity_timeout_enabled
+                  ? html`<div class="grid">
+                      ${this.number(vent, "humidity_timeout", 1, 1440, 60)}
+                    </div>`
+                  : nothing}`
             : nothing}
           ${caps?.speed
             ? html`<details>

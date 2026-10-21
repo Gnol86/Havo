@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { Window } from "happy-dom";
 import { emptyConfig, emptyRoom, newVentilation } from "../src/model";
-import type { Hass, Snapshot } from "../src/types";
+import type { Hass, Snapshot, Ventilation } from "../src/types";
 
 const window = new Window({ url: "http://127.0.0.1:8123" });
 for (const key of [
@@ -118,6 +118,18 @@ function button(panel: InstanceType<typeof HavoPanel>, text: string) {
   ].find((item) => item.textContent?.trim() === text);
   assert.ok(result, `Missing button ${text}`);
   return result;
+}
+function field(panel: InstanceType<typeof HavoPanel>, key: keyof Ventilation) {
+  const result = panel.shadowRoot!.querySelector<HTMLInputElement>(
+    `[data-settings="extractor"] [data-field="${key}"]`,
+  );
+  assert.ok(result, `Missing field ${key}`);
+  return result;
+}
+function humidityFixture(): Snapshot {
+  const initial = fixture();
+  initial.config.rooms.bathroom.ventilations.extractor.mode = "humidity";
+  return initial;
 }
 async function open(panel: InstanceType<typeof HavoPanel>, tab = "Pilotage") {
   panel.shadowRoot!.querySelector<HTMLButtonElement>(".room")!.click();
@@ -295,5 +307,172 @@ test("entity selection updates the saved room sensor", async () => {
     (calls[0].config as Snapshot["config"]).rooms.bathroom
       .temperature_entity_id,
     "sensor.temp",
+  );
+});
+
+test("humidity timeout is opt-in per ventilation and its duration survives edits and navigation", async () => {
+  const initial = humidityFixture();
+  initial.config.rooms.bathroom.ventilations.other = newVentilation(
+    "fan.other",
+    "Autre ventilation",
+  );
+  initial.config.rooms.bathroom.ventilations.other.mode = "humidity";
+  const { panel, calls } = await mount(initial);
+  await open(panel, "Automatisation");
+  assert.equal(field(panel, "humidity_timeout_enabled").checked, false);
+  assert.equal(
+    panel.shadowRoot!.querySelector('[data-field="humidity_timeout"]'),
+    null,
+  );
+  field(panel, "humidity_timeout_enabled").click();
+  await settle(panel);
+  assert.equal(field(panel, "humidity_timeout").value, "180");
+  const duration = field(panel, "humidity_timeout");
+  assert.equal(duration.min, "1");
+  assert.equal(duration.max, "1440");
+  duration.value = "120";
+  duration.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  field(panel, "humidity_timeout_enabled").click();
+  await settle(panel);
+  field(panel, "humidity_timeout_enabled").click();
+  await settle(panel);
+  assert.equal(field(panel, "humidity_timeout").value, "120");
+  button(panel, "Ventilations").click();
+  await settle(panel);
+  button(panel, "Automatisation").click();
+  await settle(panel);
+  assert.equal(field(panel, "humidity_timeout").value, "120");
+  button(panel, "Enregistrer").click();
+  await settle(panel);
+  const saved = (calls[0].config as Snapshot["config"]).rooms.bathroom
+    .ventilations;
+  assert.equal(saved.extractor.humidity_timeout_enabled, true);
+  assert.equal(saved.extractor.humidity_timeout, 7200);
+  assert.equal(saved.other.humidity_timeout_enabled, false);
+  assert.equal(saved.other.humidity_timeout, 10800);
+});
+
+test("humidity timeout is hidden in temperature mode without losing its configuration", async () => {
+  const initial = humidityFixture();
+  initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout_enabled =
+    true;
+  initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout = 9000;
+  const { panel, calls } = await mount(initial);
+  await open(panel, "Automatisation");
+  const mode = panel.shadowRoot!.querySelector<HTMLSelectElement>("select")!;
+  mode.value = "temperature";
+  mode.dispatchEvent(new Event("change", { bubbles: true }));
+  await settle(panel);
+  assert.equal(
+    panel.shadowRoot!.querySelector('[data-field="humidity_timeout_enabled"]'),
+    null,
+  );
+  assert.equal(
+    panel.shadowRoot!.querySelector('[data-field="humidity_timeout"]'),
+    null,
+  );
+  button(panel, "Enregistrer").click();
+  await settle(panel);
+  const saved = (calls[0].config as Snapshot["config"]).rooms.bathroom
+    .ventilations.extractor;
+  assert.equal(saved.mode, "temperature");
+  assert.equal(saved.humidity_timeout_enabled, true);
+  assert.equal(saved.humidity_timeout, 9000);
+});
+
+test("humidity timeout rejects durations outside one minute to one day", async () => {
+  const initial = humidityFixture();
+  initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout_enabled =
+    true;
+  const { panel, calls } = await mount(initial);
+  await open(panel, "Automatisation");
+  const duration = field(panel, "humidity_timeout");
+  for (const invalid of ["0", "1441"]) {
+    duration.value = invalid;
+    duration.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle(panel);
+    button(panel, "Enregistrer").click();
+    await settle(panel);
+    assert.equal(calls.length, 0);
+  }
+  duration.value = "1";
+  duration.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  button(panel, "Enregistrer").click();
+  await settle(panel);
+  assert.equal(
+    (calls[0].config as Snapshot["config"]).rooms.bathroom.ventilations.extractor
+      .humidity_timeout,
+    60,
+  );
+});
+
+test("humidity timeout settings and explanation follow English and French locales", async () => {
+  const { panel, hass } = await mount(humidityFixture());
+  await open(panel, "Automatisation");
+  for (const locale of ["en", "fr-BE", "fr_CA"]) {
+    panel.hass = { ...hass, locale: { language: locale } };
+    await settle(panel);
+    const text = panel.shadowRoot!.textContent!;
+    if (locale === "en") {
+      assert.match(text, /Limit extraction below the start threshold/);
+      assert.match(text, /Reaching the start threshold resets the timer/);
+      assert.match(text, /extraction can restart/);
+    } else {
+      assert.match(text, /Limiter l’extraction sous le seuil de démarrage/);
+      assert.match(text, /remet le compteur à zéro/);
+      assert.match(text, /l’extraction peut redémarrer/);
+    }
+    assert.match(text, /Extracteur personnel/);
+  }
+});
+
+test("humidity timeout countdown is separate from minimum running time and its rest reason stays visible", async () => {
+  const initial = humidityFixture();
+  const now = Date.now() / 1000;
+  initial.status.extractor = {
+    ...initial.status.extractor,
+    state: "on",
+    reason: "minimum_run",
+    deadline: now + 120,
+    humidity_timeout_at: now + 10800,
+  };
+  const { panel, emit, hass } = await mount(initial);
+  await open(panel);
+  const reason = panel.shadowRoot!.querySelector(".reason")!.textContent!;
+  assert.match(reason, /Durée minimale de marche/);
+  assert.match(reason, /Temps restant 2 min/);
+  assert.doesNotMatch(reason, /180/);
+  const countdown = panel.shadowRoot!.querySelector(
+    '[data-status="humidity-timeout"]',
+  )!.textContent!;
+  assert.match(countdown, /Retour au repos temporisé : temps restant\s+180\s+min/);
+  emit({
+    ...initial,
+    status: {
+      extractor: {
+        ...initial.status.extractor,
+        state: "off",
+        reason: "humidity_timeout",
+        deadline: null,
+        humidity_timeout_at: null,
+      },
+    },
+  });
+  await settle(panel);
+  assert.match(
+    panel.shadowRoot!.querySelector(".reason")!.textContent!,
+    /Au repos : durée sous le seuil de démarrage écoulée/,
+  );
+  assert.equal(
+    panel.shadowRoot!.querySelector('[data-status="humidity-timeout"]'),
+    null,
+  );
+  panel.hass = { ...hass, locale: { language: "en" } };
+  await settle(panel);
+  assert.match(
+    panel.shadowRoot!.querySelector(".reason")!.textContent!,
+    /At rest: time below the start threshold elapsed/,
   );
 });

@@ -21,9 +21,11 @@ export const newVentilation = (
   temperature_on: 25,
   temperature_off: 24,
   temperature_full: 30,
-  humidity_on: 60,
+  humidity_on: 75,
   humidity_hysteresis: 5,
-  humidity_full: 75,
+  humidity_full: 85,
+  humidity_timeout_enabled: false,
+  humidity_timeout: 10800,
   background: 0,
   speed_min: 40,
   speed_max: 100,
@@ -45,6 +47,10 @@ export function validVent(vent: Ventilation): boolean {
     vent.temperature_on < vent.temperature_full &&
     vent.humidity_on < vent.humidity_full &&
     vent.humidity_on - 5 - vent.humidity_hysteresis >= 0 &&
+    typeof vent.humidity_timeout_enabled === "boolean" &&
+    Number.isFinite(vent.humidity_timeout) &&
+    vent.humidity_timeout >= 60 &&
+    vent.humidity_timeout <= 86400 &&
     vent.background < vent.speed_min &&
     vent.speed_min <= vent.speed_max
   );

@@ -32,6 +32,7 @@
           "background": "Ventilation de fond",
           "temperature": "Besoin de fraîcheur",
           "humidity": "Extraction d’humidité",
+          "humidity_timeout": "Au repos : durée sous le seuil de démarrage écoulée",
           "manual_pause": "Pause manuelle",
           "minimum_run": "Durée minimale de marche",
           "minimum_rest": "Durée minimale de repos",

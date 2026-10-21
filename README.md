@@ -29,7 +29,7 @@ Requires **Home Assistant 2026.10.0 or newer**. Existing fans and sensors must a
 
 Manual installation: copy `custom_components/havo` into your Home Assistant `custom_components` directory, restart, then add the integration.
 
-The initial development version is **0.1.0**. Until a GitHub release is published, the custom HACS repository uses the default branch. Publication in the default HACS catalog and installation in a real home are separate steps.
+Version **0.2.0** adds an optional extraction time limit below the humidity start threshold. See the [release notes](releases/0.2.0.md). Use the published release from the custom HACS repository; publication in the default HACS catalog and installation in a real home are separate steps.
 
 ## First configuration
 
@@ -61,7 +61,9 @@ Input temperatures may use °C, °F or K. Settings and calculated readings in th
 
 ## Humidity comfort mode
 
-Defaults: reference **60%**, hysteresis **5 percentage points**, maximum demand at **75%**. Outdoor air is compared at the indoor temperature; relative humidity percentages at different temperatures are not compared directly.
+Defaults: reference **75%**, hysteresis **5 percentage points**, maximum demand at **85%**. With outdoor adaptation, extraction starts between **70% and 75%** and returns to rest between **65% and 70%**. Without outdoor data, the thresholds are **75% / 70%**. Outdoor air is compared at the indoor temperature; relative humidity percentages at different temperatures are not compared directly.
+
+These initial thresholds target humidity peaks in rooms whose background humidity can stay around 64–69%, so extraction can stop after a peak. They are control thresholds, not a recommended permanent indoor humidity range or a guarantee that ventilation can reach them. Calibrate them for each room. Existing saved settings are preserved; changing the defaults does not update configured fans.
 
 For temperatures in °C and humidity in percent:
 
@@ -86,11 +88,16 @@ The saturation-pressure conversion follows the [National Weather Service formula
 | --- | --- |
 | Minimum active time | 5 minutes |
 | Minimum resting time | 2 minutes |
+| Time limit below the humidity start threshold | Disabled per fan; 3 hours suggested when enabled |
 | Manual hold | 1 hour |
 | Background speed | Disabled; 20% suggested when enabled |
 | Active speed range | 40–100%, normalized to device steps |
 
 The engine reacts to state changes, reevaluates every 30 seconds and schedules deadline wakeups. Closing the panel does not interrupt automation. Configuration, demand state, transition times and manual hold deadlines survive restarts.
+
+In each fan's **Automation** tab, humidity mode offers an optional **time limit below the start threshold**, adjustable from 1 to 1,440 minutes (initially 180 minutes / 3 hours). Existing and new fans have this option disabled. Disabling it keeps the selected duration. The timer starts during active automatic extraction when the humidity is strictly between the current calculated rest and start thresholds. Reaching the start threshold resets the timer; reaching the rest threshold keeps the normal stop behavior. At expiry, Havo returns to rest (off, or the configured background speed for adjustable fans), while still respecting minimum running time. The panel shows the deadline separately and the status and Activity explain this return to rest.
+
+After this timed return to rest, the next rise to the calculated start threshold can restart extraction, subject to minimum resting time. This option limits prolonged extraction below the start threshold; it does not detect a humidity plateau or prevent rapid rebounds. It has no effect in temperature mode. A valid timer survives a reload/restart and unrelated edits. Manual control, disabled automation, an unavailable fan or primary measurement, or changes to humidity rules/sensor sources reset it; missing readings are never treated as stable humidity.
 
 If outdoor data or the indoor temperature is missing in humidity mode, Havo uses the fixed reference/rest thresholds. If the primary measurement is missing—indoor temperature in temperature mode or humidity in humidity mode—Havo freezes automatic decisions and preserves the fan state. Invalid values and units are rejected.
 
@@ -100,7 +107,7 @@ External changes to power, percentage or preset mode pause only the affected ven
 
 Open a fan's native **Activity** view to see requests such as **Havo: turn-on requested — humidity extraction** or **Havo: speed of 33% requested — background ventilation**. On/off fans never receive a percentage; speed entries contain the actual target after adjustment to the fan's supported steps.
 
-Reasons come from the engine at dispatch: cooling, humidity extraction, background ventilation, return to rest, minimum running/resting time, or a manual command in Havo. Recalculations without a command and external manual changes do not create Havo command entries. Failed or timed-out service calls add an explicit error entry; a request never proves that the device physically changed state.
+Reasons come from the engine at dispatch: cooling, humidity extraction, background ventilation, return to rest, the time limit below the humidity start threshold, minimum running/resting time, or a manual command in Havo. Recalculations without a command and external manual changes do not create Havo command entries. Failed or timed-out service calls add an explicit error entry; a request never proves that the device physically changed state.
 
 Havo supplies an origin event and a standard entry associated with the fan. The native details can attribute a state change to **Havo — reason** when the device integration preserves the command context. If it drops that context, the Havo request remains in the fan's Activity but the physical change cannot reliably be linked to it. Speed-only changes are covered by the request entry even when Home Assistant does not show a separate state transition. The unfiltered Activity feed may show both the origin and request entries.
 
@@ -123,7 +130,7 @@ npm run build
 
 The integration contains its complete panel bundle and Lit license; no CDN is used. CI checks Python, TypeScript, panel tests, reproducible bundle, Hassfest and HACS. The release workflow validates matching tag, manifest/project/lock versions and release notes before publication.
 
-Tests use simulated devices. They do not establish suitability or calibration for a home's actual ventilation equipment. See [panel development](frontend/README.md) and [initial version notes](releases/0.1.0.md).
+Tests use simulated devices. They do not establish suitability or calibration for a home's actual ventilation equipment. See [panel development](frontend/README.md) and [release notes](releases/0.2.0.md).
 
 ## License
 

@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 
+import pytest
 from homeassistant.components.fan import FanEntityFeature as Feature
 from homeassistant.core import Context
 from homeassistant.exceptions import HomeAssistantError
@@ -109,10 +110,57 @@ async def test_sensor_missing_preserves_hardware(hass, house):
 
 async def test_humidity_without_outdoor_data(hass, house):
     manager, calls = house
-    state(hass, "sensor.indoor_humidity", "65")
+    state(hass, "sensor.indoor_humidity", "80")
     engine = await configure(manager, enabled=True, mode="humidity", min_on=0)
     assert engine.status["decision"]["fallback"]
     assert calls[-1][0] == "turn_on"
+
+
+@pytest.mark.parametrize("outdoors", [None, (15, 60), (5, 90), (28, 85)])
+async def test_bathroom_humidity_peak_returns_to_rest(hass, house, outdoors):
+    """A bathroom at 64-69% must stop after a peak, even with early extraction."""
+    manager, calls = house
+    if outdoors:
+        hass.states.async_set(
+            "weather.home",
+            "cloudy",
+            {
+                "temperature": outdoors[0],
+                "temperature_unit": "°C",
+                "humidity": outdoors[1],
+            },
+        )
+        await manager.save(
+            manager.config | {"weather_entity_id": "weather.home"}, manager.revision
+        )
+    state(hass, "sensor.indoor_humidity", "64")
+    engine = await configure(manager, enabled=True, mode="humidity")
+    state(hass, "sensor.indoor_humidity", "69")
+    await hass.async_block_till_done()
+    assert calls == []
+
+    state(hass, "sensor.indoor_humidity", "84")
+    await hass.async_block_till_done()
+    assert calls == [("turn_on", {"entity_id": "fan.extractor"})]
+    assert not engine.runtime.get("pause_until")
+
+    # The measured descent takes hours, beyond the unchanged minimum run time.
+    engine.runtime["changed_at"] = dt_util.utcnow().timestamp() - 301
+    for humidity in (75, 71, 69, 65):
+        state(hass, "sensor.indoor_humidity", str(humidity))
+        await hass.async_block_till_done()
+    assert hass.states.get("fan.extractor").state == "off"
+    assert calls == [
+        ("turn_on", {"entity_id": "fan.extractor"}),
+        ("turn_off", {"entity_id": "fan.extractor"}),
+    ]
+
+    # An ordinary rebound must not restart extraction, even after minimum rest.
+    engine.runtime["changed_at"] = dt_util.utcnow().timestamp() - 121
+    state(hass, "sensor.indoor_humidity", "68.92")
+    await hass.async_block_till_done()
+    assert not engine.runtime["active"]
+    assert len(calls) == 2
 
 
 async def test_capability_loss_freezes_background(hass, house):

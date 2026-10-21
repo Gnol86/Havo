@@ -19,7 +19,11 @@ test("defaults are opt-in and independent", () => {
   const a = newVentilation("fan.a", "A"),
     b = newVentilation("fan.b", "B");
   a.enabled = true;
+  a.humidity_timeout_enabled = true;
+  a.humidity_timeout = 7200;
   assert.equal(b.enabled, false);
+  assert.equal(b.humidity_timeout_enabled, false);
+  assert.equal(b.humidity_timeout, 10800);
   assert.ok(validVent(b));
   assert.notEqual(createId(), createId());
 });
@@ -55,4 +59,15 @@ test("threshold relationships", () => {
   const vent = newVentilation("fan.a", "A");
   vent.temperature_off = 26;
   assert.equal(validVent(vent), false);
+});
+test("humidity timeout duration remains valid even while the option is disabled", () => {
+  const vent = newVentilation("fan.a", "A");
+  for (const seconds of [59, 86401, NaN, Infinity]) {
+    vent.humidity_timeout = seconds;
+    assert.equal(validVent(vent), false);
+  }
+  for (const seconds of [60, 10800, 86400]) {
+    vent.humidity_timeout = seconds;
+    assert.ok(validVent(vent));
+  }
 });

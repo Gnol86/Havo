@@ -12,9 +12,11 @@ VENT_DEFAULTS = {
     "temperature_on": 25,
     "temperature_off": 24,
     "temperature_full": 30,
-    "humidity_on": 60,
+    "humidity_on": 75,
     "humidity_hysteresis": 5,
-    "humidity_full": 75,
+    "humidity_full": 85,
+    "humidity_timeout_enabled": False,
+    "humidity_timeout": 10800,
     "background": 0,
     "speed_min": 40,
     "speed_max": 100,
@@ -110,6 +112,9 @@ def validate_config(value: dict) -> dict:
             number(vent["humidity_on"], 20, 90)
             number(vent["humidity_hysteresis"], 1, 20)
             number(vent["humidity_full"], 21, 100)
+            if type(vent["humidity_timeout_enabled"]) is not bool:
+                raise ValueError("Invalid humidity timeout toggle")
+            number(vent["humidity_timeout"], 60, 86400)
             if (
                 vent["humidity_on"] >= vent["humidity_full"]
                 or vent["humidity_on"] - 5 - vent["humidity_hysteresis"] < 0

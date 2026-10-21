@@ -29,7 +29,7 @@ Havo pilote les entités `fan` existantes depuis un panneau intégré à Home As
 
 Installation manuelle : copie `custom_components/havo` dans le dossier `custom_components` de Home Assistant, redémarre puis ajoute l’intégration.
 
-La version initiale de développement est **0.1.0**. En l’absence de release GitHub, le dépôt personnalisé HACS utilise la branche par défaut. Le référencement au catalogue HACS et l’installation domestique sont des étapes distinctes.
+La version **0.2.0** ajoute un délai facultatif d’extraction sous le seuil de démarrage en humidité. Consulte les [notes de version](../releases/0.2.0.md). Utilise la release publiée depuis le dépôt personnalisé HACS ; le référencement au catalogue HACS et l’installation domestique sont des étapes distinctes.
 
 ## Premiers réglages
 
@@ -61,7 +61,9 @@ Les capteurs peuvent exprimer leurs températures en °C, °F ou K. Les réglage
 
 ## Confort d’humidité
 
-Valeurs initiales : référence **60 %**, hystérésis **5 points**, demande maximale **75 %**. L’humidité extérieure est ramenée à la température intérieure avant comparaison.
+Valeurs initiales : référence **75 %**, hystérésis **5 points**, demande maximale **85 %**. Avec l’adaptation extérieure, le démarrage se situe entre **70 et 75 %** et le retour au repos entre **65 et 70 %**. Sans données extérieures, les seuils sont de **75 % / 70 %**. L’humidité extérieure est ramenée à la température intérieure avant comparaison.
+
+Ces seuils initiaux ciblent les pics d’humidité dans les pièces dont le niveau de fond peut rester vers 64–69 %, afin que l’extraction puisse s’arrêter après un pic. Ce sont des seuils de commande, pas une plage d’humidité intérieure permanente recommandée ni une garantie que la ventilation pourra les atteindre. Adapte-les à chaque pièce. Les réglages déjà enregistrés sont conservés ; changer les valeurs par défaut ne met pas à jour les ventilateurs configurés.
 
 ```text
 es(T) = 6,11 × 10^(7,5 × T / (237,3 + T))
@@ -84,13 +86,18 @@ La conversion de pression de vapeur suit la [formule du National Weather Service
 | --- | --- |
 | Marche minimale | 5 minutes |
 | Repos minimal | 2 minutes |
+| Délai sous le seuil de démarrage en humidité | Désactivé par ventilation ; 3 heures proposées à l’activation |
 | Pause manuelle | 1 heure |
 | Vitesse de fond | Désactivée ; 20 % proposés à l’activation |
 | Plage active | 40–100 %, adaptée aux paliers |
 
 Le moteur réagit aux mesures, recalcule toutes les 30 secondes et se réveille aux échéances. Il continue lorsque le panneau est fermé. La configuration, le besoin actif, les dates de transition et les pauses persistent au redémarrage.
 
-En mode humidité, l’absence de données extérieures ou de température intérieure fait revenir aux seuils fixes. Sans mesure principale — température en mode température, humidité en mode confort — les décisions sont suspendues et l’état matériel conservé. Valeurs et unités invalides sont rejetées.
+Dans l’onglet **Automatisation** de chaque ventilation, le mode humidité propose un **délai sous le seuil de démarrage**, réglable de 1 à 1 440 minutes (initialement 180 minutes / 3 heures). L’option est désactivée pour les ventilations nouvelles et existantes. La désactivation conserve la durée choisie. Le compteur commence pendant l’extraction automatique active lorsque l’humidité est strictement entre les seuils calculés de repos et de démarrage. Atteindre le seuil de démarrage remet le compteur à zéro ; atteindre le seuil de repos conserve l’arrêt normal. À l’échéance, Havo revient au repos (arrêt ou vitesse de fond configurée pour les appareils modulables), en respectant la marche minimale. Le panneau affiche le décompte séparément ; l’état et l’Activité expliquent ce retour au repos.
+
+Après ce retour au repos, une remontée au seuil calculé de démarrage peut relancer l’extraction, en respectant le repos minimal. Cette option limite la prolongation de l’extraction sous le seuil de démarrage ; elle ne détecte pas un plateau d’humidité et n’empêche pas un rebond rapide. Elle n’agit pas en mode température. Un compteur valide persiste lors d’un rechargement/redémarrage et d’une modification sans rapport. Une intervention manuelle, l’automatisation désactivée, un ventilateur ou une mesure principale indisponible, ou une modification des règles d’humidité/sources remettent le compteur à zéro ; une mesure manquante n’est jamais assimilée à une humidité stable.
+
+En mode humidité, l’absence de données extérieures ou de température intérieure fait revenir aux seuils fixes. Sans mesure principale — température en mode température, humidité en mode humidité — les décisions sont suspendues et l’état matériel conservé. Valeurs et unités invalides sont rejetées.
 
 Un changement externe de marche, de vitesse ou de mode prédéfini suspend uniquement la ventilation concernée. Havo reconnaît ses contextes de commande et utilise une courte fenêtre d’acquittement correspondant à la cible pour les intégrations qui perdent ce contexte. Les commandes manuelles priment sur les durées automatiques minimales. Désactiver l’automatisation, supprimer une ventilation ou décharger Havo conserve l’état matériel.
 
@@ -98,7 +105,7 @@ Un changement externe de marche, de vitesse ou de mode prédéfini suspend uniqu
 
 Ouvre l’**Activité** native d’une ventilation pour retrouver par exemple **Havo : mise en marche demandée — extraction d’humidité** ou **Havo : vitesse de 33 % demandée — ventilation de fond**. Un appareil marche/arrêt ne reçoit jamais de pourcentage ; les entrées de vitesse indiquent la cible réellement envoyée après adaptation aux paliers de l’appareil.
 
-Le motif provient du moteur au moment de la commande : refroidissement, extraction d’humidité, ventilation de fond, retour au repos, durée minimale de marche/repos ou commande manuelle dans Havo. Un recalcul sans commande et une intervention externe ne créent pas d’entrée de commande Havo. Un appel en échec ou expiré ajoute une erreur explicite ; une demande ne prouve jamais le changement d’état physique de l’appareil.
+Le motif provient du moteur au moment de la commande : refroidissement, extraction d’humidité, ventilation de fond, retour au repos, délai sous le seuil de démarrage en humidité, durée minimale de marche/repos ou commande manuelle dans Havo. Un recalcul sans commande et une intervention externe ne créent pas d’entrée de commande Havo. Un appel en échec ou expiré ajoute une erreur explicite ; une demande ne prouve jamais le changement d’état physique de l’appareil.
 
 Havo fournit un événement d’origine et une entrée standard associée à la ventilation. Le détail natif peut attribuer le changement d’état à **Havo — motif** si l’intégration de l’appareil conserve le contexte de commande. Si elle le perd, la demande Havo reste dans l’activité du ventilateur, mais le lien avec le changement physique ne peut pas être établi de façon fiable. Les ajustements de vitesse restent visibles même si Home Assistant n’affiche pas de transition d’état distincte. Le journal global non filtré peut afficher à la fois l’origine et l’entrée de demande.
 
@@ -121,7 +128,7 @@ npm run build
 
 Le panneau et sa licence Lit sont embarqués, sans CDN. La CI vérifie Python, TypeScript, le panneau, la reproductibilité du bundle, Hassfest et HACS. Le workflow de release contrôle le tag, le manifeste, les versions du projet/verrou et les notes avant publication.
 
-Les essais utilisent des appareils simulés et ne prouvent pas le comportement ou la calibration du matériel du logement. Voir le [guide du panneau](../frontend/README.md) et les [notes initiales](../releases/0.1.0.md).
+Les essais utilisent des appareils simulés et ne prouvent pas le comportement ou la calibration du matériel du logement. Voir le [guide du panneau](../frontend/README.md) et les [notes de version](../releases/0.2.0.md).
 
 ## Licence
 
