@@ -40,7 +40,7 @@ The panel includes searchable room and entity lists, live status, and access to 
 
 On narrow screens, or when the sidebar is hidden in your Home Assistant preferences, the menu button in Havo’s header opens the Home Assistant sidebar. Your current Havo view and unsaved settings are preserved. The button respects kiosk mode and apps that provide their own sidebar.
 
-**[New in 0.3.0](releases/0.3.0.md):** a Halo-aligned interface, room power shortcuts, a Home Assistant menu button and complete Spanish support. The optional humidity extraction time limit introduced in 0.2.0 remains disabled by default for both new and existing fans.
+**[New in 0.3.1](releases/0.3.1.md):** reliable panel refresh after updates. The [0.3.0 release](releases/0.3.0.md) introduced a Halo-aligned interface, room power shortcuts, a Home Assistant menu button and complete Spanish support. The optional humidity extraction time limit introduced in 0.2.0 remains disabled by default for both new and existing fans.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ The compiled panel, its Lit license and brand images are included. No frontend b
 
 ### Updating
 
-Update Havo through HACS, or replace the `custom_components/havo` folder with the one from the chosen release. Restart Home Assistant and reload your browser to load the updated panel. Read the [release notes](https://github.com/Gnol86/Havo/releases) for changes and compatibility information.
+Update Havo through HACS, or replace the `custom_components/havo` folder with the one from the chosen release. Restart Home Assistant and reload your browser to load the updated panel. From 0.3.1, the panel URL includes a fingerprint of the installed JavaScript so a changed bundle is requested under a new URL. An already open page still needs reloading. Read the [release notes](https://github.com/Gnol86/Havo/releases) for changes and compatibility information.
 
 ## Set up your first room
 
@@ -207,7 +207,7 @@ npm run build
 
 The integration contains its complete panel bundle and Lit license; no CDN is used. CI checks Python, TypeScript, panel tests, reproducible bundle, Hassfest and HACS. The release workflow validates matching tag, manifest/project/lock versions and release notes before publication.
 
-Tests use simulated devices. They do not establish suitability or calibration for a home's actual ventilation equipment. See [panel development](frontend/README.md) and [release notes](releases/0.3.0.md).
+Tests use simulated devices. They do not establish suitability or calibration for a home's actual ventilation equipment. See [panel development](frontend/README.md) and [release notes](releases/0.3.1.md).
 
 ## Support and license
 
