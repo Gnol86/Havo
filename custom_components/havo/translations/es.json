@@ -1,0 +1,50 @@
+{
+  "title": "Havo",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Havo",
+        "description": "Configura la ventilación de tu hogar en el panel Havo de la barra lateral."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Solo se necesita una instalación de Havo.",
+      "already_in_progress": "La configuración ya está en curso."
+    }
+  },
+  "entity": {
+    "switch": {
+      "automation": {
+        "name": "Ventilación automática"
+      }
+    },
+    "button": {
+      "resume": {
+        "name": "Reanudar la automatización"
+      }
+    },
+    "sensor": {
+      "status": {
+        "name": "Estado de la ventilación",
+        "state": {
+          "disabled": "Automatización desactivada",
+          "idle": "En reposo",
+          "background": "Ventilación de fondo",
+          "temperature": "Demanda de refrigeración",
+          "humidity": "Extracción de humedad",
+          "humidity_timeout": "En reposo: ha transcurrido el tiempo por debajo del umbral de inicio",
+          "manual_pause": "Pausa manual",
+          "minimum_run": "Tiempo mínimo de funcionamiento",
+          "minimum_rest": "Tiempo mínimo de reposo",
+          "fan_unavailable": "Ventilador no disponible",
+          "sensor_unavailable": "Sensor requerido no disponible",
+          "speed_unsupported": "Control de velocidad no disponible",
+          "on_unsupported": "Encendido no compatible",
+          "off_unsupported": "Apagado no compatible",
+          "command_failed": "La orden ha fallado",
+          "initializing": "Inicializando"
+        }
+      }
+    }
+  }
+}

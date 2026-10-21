@@ -85,6 +85,9 @@ export interface Snapshot {
   controllable: string[];
 }
 export interface Hass {
+  dockedSidebar?: "docked" | "always_hidden" | "auto";
+  kioskMode?: boolean;
+  auth?: { external?: { config?: { hasSidebar?: boolean } } };
   language?: string;
   locale?: { language?: string };
   themes?: { darkMode?: boolean };

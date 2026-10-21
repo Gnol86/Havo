@@ -69,6 +69,7 @@ async function settle(panel: InstanceType<typeof HavoPanel>) {
 async function mount(
   initial = fixture(),
   save?: (message: Record<string, unknown>) => Promise<Snapshot>,
+  command?: (message: Record<string, unknown>) => Promise<Snapshot>,
 ) {
   let snapshot = initial;
   let emit: (snapshot: Snapshot) => void = () => {};
@@ -85,6 +86,9 @@ async function mount(
     },
     async callWS<T>(message: Record<string, unknown>) {
       calls.push(structuredClone(message));
+      if (message.type === "havo/command" && command) {
+        return (await command(message)) as T;
+      }
       if (message.type === "havo/save") {
         if (save) return (await save(message)) as T;
         snapshot = {
@@ -126,6 +130,34 @@ function field(panel: InstanceType<typeof HavoPanel>, key: keyof Ventilation) {
   assert.ok(result, `Missing field ${key}`);
   return result;
 }
+function twoFanFixture(): Snapshot {
+  const initial = fixture(true);
+  initial.config.rooms.bathroom.ventilations.second = newVentilation(
+    "fan.second",
+    "Deuxième ventilation",
+  );
+  const capabilities = {
+    ...initial.status.extractor.capabilities!,
+    speed: false,
+    presets: true,
+  };
+  initial.entities.push({
+    ...initial.entities[0],
+    entity_id: "fan.second",
+    name: "Deuxième ventilation",
+    capabilities,
+  });
+  initial.status.second = { reason: "idle", state: "off", capabilities };
+  initial.controllable.push("second");
+  return initial;
+}
+function roomToggle(panel: InstanceType<typeof HavoPanel>) {
+  const result = panel.shadowRoot!.querySelector<HTMLButtonElement>(
+    ".room-item .quick-toggle",
+  );
+  assert.ok(result, "Missing room power shortcut");
+  return result;
+}
 function humidityFixture(): Snapshot {
   const initial = fixture();
   initial.config.rooms.bathroom.ventilations.extractor.mode = "humidity";
@@ -140,6 +172,187 @@ async function open(panel: InstanceType<typeof HavoPanel>, tab = "Pilotage") {
   }
 }
 afterEach(() => window.document.body.replaceChildren());
+
+test("Home Assistant menu follows host layout and sidebar preferences in every language", async () => {
+  const { panel, hass } = await mount(fixture(false, false));
+  const menu = () => panel.shadowRoot!.querySelector<HTMLButtonElement>(".sidebar-toggle");
+  assert.equal(menu(), null);
+  panel.narrow = true;
+  for (const [language, label] of [
+    ["en", "Open Home Assistant menu"],
+    ["fr-BE", "Ouvrir le menu Home Assistant"],
+    ["es-MX", "Abrir el menú de Home Assistant"],
+  ]) {
+    panel.hass = { ...hass, locale: { language } };
+    await settle(panel);
+    assert.equal(menu()!.getAttribute("aria-label"), label);
+    assert.equal(menu()!.title, label);
+    assert.equal(menu()!.disabled, false);
+  }
+  panel.narrow = false;
+  for (const dockedSidebar of ["always_hidden", "docked", "auto"] as const) {
+    panel.hass = { ...hass, dockedSidebar };
+    await settle(panel);
+    assert.equal(Boolean(menu()), dockedSidebar === "always_hidden");
+  }
+  panel.narrow = true;
+  panel.hass = { ...hass, dockedSidebar: "always_hidden", kioskMode: true };
+  await settle(panel);
+  assert.equal(menu(), null);
+  panel.hass = { ...hass, auth: { external: { config: { hasSidebar: true } } } };
+  await settle(panel);
+  assert.equal(menu(), null);
+  panel.hass = { ...hass, auth: { external: { config: { hasSidebar: false } } } };
+  await settle(panel);
+  assert.ok(menu());
+});
+
+test("opening the Home Assistant menu crosses shadow roots and preserves the draft", async () => {
+  const { panel, hass, calls } = await mount();
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  host.attachShadow({ mode: "open" }).appendChild(panel);
+  panel.narrow = true;
+  await settle(panel);
+  await open(panel, "Automatisation");
+  const temperature = field(panel, "temperature_on");
+  temperature.value = "26";
+  temperature.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  const callsBefore = structuredClone(calls);
+  let received: CustomEvent | undefined;
+  host.addEventListener("hass-toggle-menu", event => { received = event as CustomEvent; });
+  panel.shadowRoot!.querySelector<HTMLButtonElement>(".sidebar-toggle")!.click();
+  await settle(panel);
+  assert.deepEqual(received?.detail, { open: true });
+  assert.equal(received?.composed, true);
+  assert.equal(received?.bubbles, true);
+  assert.equal(field(panel, "temperature_on").value, "26");
+  assert.ok(panel.shadowRoot!.querySelector(".savebar"));
+  assert.deepEqual(calls, callsBefore);
+  panel.hass = { ...hass };
+  await settle(panel);
+  assert.equal(field(panel, "temperature_on").value, "26");
+});
+
+test("panel language follows Home Assistant locale, regional variants and language fallback", async () => {
+  const { panel, hass } = await mount();
+  for (const [locale, language, expectedLanguage, rooms] of [
+    ["es", "fr", "es", "Habitaciones"],
+    ["es-ES", "en", "es", "Habitaciones"],
+    ["es_MX", "fr", "es", "Habitaciones"],
+    [undefined, "ES-AR", "es", "Habitaciones"],
+    ["fr_CA", "es", "fr", "Pièces"],
+    ["de", "es", "en", "Rooms"],
+    [undefined, undefined, "en", "Rooms"],
+  ]) {
+    panel.hass = {
+      ...hass,
+      locale: locale ? { language: locale } : undefined,
+      language,
+    };
+    await settle(panel);
+    assert.equal(
+      panel.shadowRoot!.querySelector(".shell")!.getAttribute("lang"),
+      expectedLanguage,
+    );
+    assert.ok(button(panel, rooms!));
+    assert.match(panel.shadowRoot!.textContent!, /Salle de bains/);
+  }
+});
+
+test("Spanish labels update live while custom ventilation names and drafts remain unchanged", async () => {
+  const { panel, hass, calls } = await mount();
+  await open(panel, "Ventilations");
+  const name = panel.shadowRoot!.querySelector<HTMLInputElement>(
+    'input[maxlength="100"]',
+  )!;
+  name.value = "Extracteur personnalisé — baño";
+  name.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  for (const [locale, heading] of [
+    ["es_MX", "Añadir una ventilación"],
+    ["fr-BE", "Ajouter une ventilation"],
+    ["en", "Add a ventilation"],
+    ["ES-AR", "Añadir una ventilación"],
+  ]) {
+    panel.hass = { ...hass, locale: { language: locale } };
+    await settle(panel);
+    assert.ok(panel.shadowRoot!.textContent!.includes(heading));
+    assert.equal(
+      panel.shadowRoot!.querySelector<HTMLInputElement>(
+        'input[maxlength="100"]',
+      )!.value,
+      "Extracteur personnalisé — baño",
+    );
+    assert.match(panel.shadowRoot!.textContent!, /Salle de bains/);
+  }
+  button(panel, "Guardar").click();
+  await settle(panel);
+  const saved = (calls[0].config as Snapshot["config"]).rooms.bathroom
+    .ventilations.extractor;
+  assert.equal(saved.name, "Extracteur personnalisé — baño");
+  assert.equal(saved.entity_id, "fan.extractor");
+  assert.match(panel.shadowRoot!.textContent!, /Cambios guardados\./);
+});
+
+test("Spanish entity picker localizes search and empty results without translating entity names", async () => {
+  const initial = fixture();
+  initial.entities.push({
+    entity_id: "sensor.temperature_personnelle",
+    name: "Température personnalisée",
+    domain: "sensor",
+    area_id: "bathroom",
+    device_class: "temperature",
+    unit: "°C",
+    capabilities: null,
+  });
+  const { panel, hass } = await mount(initial);
+  await open(panel, "Automatisation");
+  panel.hass = { ...hass, locale: { language: "es-ES" } };
+  await settle(panel);
+  const picker = panel.shadowRoot!.querySelector("havo-entity-picker")!;
+  const input = picker.shadowRoot!.querySelector<HTMLInputElement>("input")!;
+  assert.match(picker.shadowRoot!.textContent!, /Temperatura de la habitación/);
+  assert.equal(input.placeholder, "Buscar entidades");
+  input.focus();
+  await settle(panel);
+  assert.match(picker.shadowRoot!.textContent!, /Température personnalisée/);
+  assert.match(picker.shadowRoot!.textContent!, /sensor.temperature_personnelle/);
+  input.value = "no existe";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  assert.match(picker.shadowRoot!.textContent!, /Sin resultados/);
+  panel.hass = { ...hass, locale: { language: "fr-BE" } };
+  await settle(panel);
+  assert.equal(input.placeholder, "Rechercher des entités");
+  assert.match(picker.shadowRoot!.textContent!, /Aucun résultat/);
+});
+
+test("Spanish command errors follow language changes without changing custom names", async () => {
+  const { panel, hass, calls } = await mount(fixture(), undefined, async () => {
+    throw { code: "invalid_command" };
+  });
+  await open(panel);
+  panel.hass = { ...hass, language: "es_MX", locale: undefined };
+  await settle(panel);
+  assert.match(panel.shadowRoot!.textContent!, /Extracteur personnel/);
+  button(panel, "Encender").click();
+  await settle(panel);
+  assert.match(
+    panel.shadowRoot!.querySelector('[role="alert"]')!.textContent!,
+    /Este comando no es compatible\./,
+  );
+  panel.hass = { ...hass, locale: { language: "en" } };
+  await settle(panel);
+  assert.match(
+    panel.shadowRoot!.querySelector('[role="alert"]')!.textContent!,
+    /This command is not supported\./,
+  );
+  assert.match(panel.shadowRoot!.textContent!, /Extracteur personnel/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].vent_id, "extractor");
+});
 
 test("on/off fans have no speed controls", async () => {
   const { panel } = await mount();
@@ -165,7 +378,7 @@ test("non-admin users only see controls", async () => {
   const { panel } = await mount(fixture(false, false));
   await open(panel);
   assert.equal(panel.shadowRoot!.querySelectorAll('[role="tab"]').length, 1);
-  assert.doesNotMatch(panel.shadowRoot!.textContent!, /Réglages généraux/);
+  assert.doesNotMatch(panel.shadowRoot!.textContent!, /Réglages globaux/);
 });
 test("manual on/off sends no percentage", async () => {
   const { panel, calls } = await mount();
@@ -178,6 +391,236 @@ test("manual on/off sends no percentage", async () => {
     command: "turn_on",
   });
 });
+test("room power keeps one direction for every fan after the first live state update", async () => {
+  const initial = twoFanFixture();
+  const current = structuredClone(initial);
+  const { panel, calls } = await mount(initial, undefined, async (message) => {
+    current.status[message.vent_id as string].state = "on";
+    return structuredClone(current);
+  });
+  roomToggle(panel).click();
+  await settle(panel);
+  assert.deepEqual(calls, [
+    { type: "havo/command", vent_id: "extractor", command: "turn_on" },
+    { type: "havo/command", vent_id: "second", command: "turn_on" },
+  ]);
+  assert.equal(roomToggle(panel).getAttribute("aria-pressed"), "true");
+});
+
+test("room power turns every fan off when the room has mixed power states", async () => {
+  const initial = twoFanFixture();
+  initial.status.extractor.state = "on";
+  const { panel, calls } = await mount(initial);
+  roomToggle(panel).click();
+  await settle(panel);
+  assert.deepEqual(calls, [
+    { type: "havo/command", vent_id: "extractor", command: "turn_off" },
+    { type: "havo/command", vent_id: "second", command: "turn_off" },
+  ]);
+});
+
+test("room power requires permissions, availability and the requested capability for every fan", async (t) => {
+  const cases: {
+    name: string;
+    modify: (snapshot: Snapshot) => void;
+  }[] = [
+    {
+      name: "one fan is not controllable",
+      modify: (snapshot) => {
+        snapshot.controllable = ["extractor"];
+      },
+    },
+    {
+      name: "one fan is unavailable",
+      modify: (snapshot) => {
+        snapshot.status.second.capabilities!.available = false;
+      },
+    },
+    {
+      name: "one fan cannot turn on",
+      modify: (snapshot) => {
+        snapshot.status.second.capabilities!.turn_on = false;
+      },
+    },
+    {
+      name: "one fan cannot turn off",
+      modify: (snapshot) => {
+        snapshot.status.extractor.state = "on";
+        snapshot.status.second.capabilities!.turn_off = false;
+      },
+    },
+    {
+      name: "one fan has no known capabilities",
+      modify: (snapshot) => {
+        delete snapshot.status.second.capabilities;
+        snapshot.entities[1].capabilities = null;
+      },
+    },
+  ];
+  for (const scenario of cases) {
+    await t.test(scenario.name, async () => {
+      const initial = twoFanFixture();
+      scenario.modify(initial);
+      const { panel, calls } = await mount(initial);
+      assert.equal(roomToggle(panel).disabled, true);
+      roomToggle(panel).click();
+      await settle(panel);
+      assert.deepEqual(calls, []);
+      panel.remove();
+    });
+  }
+});
+
+test("room power allows a non-admin with device control permission", async () => {
+  const initial = fixture(false, false);
+  const { panel, calls } = await mount(initial);
+  assert.equal(roomToggle(panel).disabled, false);
+  roomToggle(panel).click();
+  await settle(panel);
+  assert.deepEqual(calls, [
+    { type: "havo/command", vent_id: "extractor", command: "turn_on" },
+  ]);
+});
+
+test("room power remains disabled while a configuration draft exists", async () => {
+  const { panel, calls } = await mount(twoFanFixture());
+  await open(panel, "Automatisation");
+  const input = field(panel, "temperature_on");
+  input.value = "27";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  assert.equal(roomToggle(panel).disabled, true);
+  roomToggle(panel).click();
+  await settle(panel);
+  assert.deepEqual(calls, []);
+  button(panel, "Abandonner").click();
+  await settle(panel);
+  assert.equal(roomToggle(panel).disabled, false);
+});
+
+test("room power serializes requests and keeps controls locked for the entire batch", async () => {
+  const initial = twoFanFixture();
+  const finish: ((snapshot: Snapshot) => void)[] = [];
+  const { panel, calls } = await mount(
+    initial,
+    undefined,
+    async () =>
+      new Promise((resolve) => {
+        finish.push(resolve);
+      }),
+  );
+  roomToggle(panel).click();
+  await settle(panel);
+  assert.equal(calls.length, 1);
+  assert.equal(roomToggle(panel).disabled, true);
+  roomToggle(panel).click();
+  assert.equal(calls.length, 1);
+  finish[0](initial);
+  await settle(panel);
+  assert.equal(calls.length, 2);
+  assert.equal(roomToggle(panel).disabled, true);
+  roomToggle(panel).click();
+  assert.equal(calls.length, 2);
+  finish[1](initial);
+  await settle(panel);
+  assert.equal(roomToggle(panel).disabled, false);
+});
+
+test("room power stops if a configuration draft starts during the first request", async () => {
+  const initial = twoFanFixture();
+  let finish!: (snapshot: Snapshot) => void;
+  const { panel, calls } = await mount(
+    initial,
+    undefined,
+    async () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  await open(panel, "Automatisation");
+  roomToggle(panel).click();
+  await settle(panel);
+  assert.equal(calls.length, 1);
+  const input = field(panel, "temperature_on");
+  input.value = "27";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  finish(initial);
+  await settle(panel);
+  assert.equal(calls.length, 1);
+  assert.equal(roomToggle(panel).disabled, true);
+  assert.equal(field(panel, "temperature_on").value, "27");
+});
+
+test("room power stops after a failed command and displays the error", async () => {
+  const { panel, calls } = await mount(twoFanFixture(), undefined, async () => {
+    throw { code: "not_allowed", message: "Control denied" };
+  });
+  roomToggle(panel).click();
+  await settle(panel);
+  assert.deepEqual(calls, [
+    { type: "havo/command", vent_id: "extractor", command: "turn_on" },
+  ]);
+  assert.ok(panel.shadowRoot!.querySelector('[role="alert"]'));
+  assert.equal(roomToggle(panel).disabled, false);
+});
+
+test("room power rechecks permissions and capabilities after each command", async (t) => {
+  for (const revoked of [
+    "permission",
+    "availability",
+    "turn_on",
+    "assignment",
+  ] as const) {
+    await t.test(revoked, async () => {
+      const initial = twoFanFixture();
+      const { panel, calls } = await mount(initial, undefined, async () => {
+        const next = structuredClone(initial);
+        next.status.extractor.state = "on";
+        if (revoked === "permission") next.controllable = ["extractor"];
+        else if (revoked === "availability")
+          next.status.second.capabilities!.available = false;
+        else if (revoked === "turn_on")
+          next.status.second.capabilities!.turn_on = false;
+        else {
+          next.config.rooms.bathroom.ventilations.second.entity_id =
+            "fan.replacement";
+          next.revision++;
+        }
+        return next;
+      });
+      roomToggle(panel).click();
+      await settle(panel);
+      assert.equal(
+        calls.length,
+        1,
+        `The batch must stop after ${revoked} changes`,
+      );
+      panel.remove();
+    });
+  }
+});
+
+test("room search ignores accents and preserves the full room count", async () => {
+  const initial = fixture();
+  initial.areas.push({ id: "floor", name: "Étage détente" });
+  const { panel } = await mount(initial);
+  const search = panel.shadowRoot!.querySelector<HTMLInputElement>(
+    '.rail-search input[type="search"]',
+  )!;
+  search.value = "etage";
+  search.dispatchEvent(new Event("input", { bubbles: true }));
+  await settle(panel);
+  const rooms = panel.shadowRoot!.querySelectorAll(".room");
+  assert.equal(rooms.length, 1);
+  assert.equal(rooms[0].getAttribute("aria-label"), "Étage détente");
+  assert.equal(
+    panel.shadowRoot!.querySelector(".rail-heading .count")!.textContent,
+    "3",
+  );
+  assert.equal(panel.shadowRoot!.querySelector(".quick-toggle"), null);
+});
+
 test("draft survives navigation, discard restores fields", async () => {
   const { panel } = await mount();
   await open(panel, "Automatisation");
@@ -270,7 +713,8 @@ test("keyboard tab navigation and dark theme", async () => {
   );
   await settle(panel);
   assert.equal(
-    panel.shadowRoot!.querySelector('[role="tab"][aria-selected="true"]')!
+    panel
+      .shadowRoot!.querySelector('[role="tab"][aria-selected="true"]')!
       .textContent?.trim(),
     "Ventilations",
   );
@@ -355,8 +799,7 @@ test("humidity timeout is opt-in per ventilation and its duration survives edits
 
 test("humidity timeout is hidden in temperature mode without losing its configuration", async () => {
   const initial = humidityFixture();
-  initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout_enabled =
-    true;
+  initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout_enabled = true;
   initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout = 9000;
   const { panel, calls } = await mount(initial);
   await open(panel, "Automatisation");
@@ -383,8 +826,7 @@ test("humidity timeout is hidden in temperature mode without losing its configur
 
 test("humidity timeout rejects durations outside one minute to one day", async () => {
   const initial = humidityFixture();
-  initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout_enabled =
-    true;
+  initial.config.rooms.bathroom.ventilations.extractor.humidity_timeout_enabled = true;
   const { panel, calls } = await mount(initial);
   await open(panel, "Automatisation");
   const duration = field(panel, "humidity_timeout");
@@ -402,16 +844,24 @@ test("humidity timeout rejects durations outside one minute to one day", async (
   button(panel, "Enregistrer").click();
   await settle(panel);
   assert.equal(
-    (calls[0].config as Snapshot["config"]).rooms.bathroom.ventilations.extractor
-      .humidity_timeout,
+    (calls[0].config as Snapshot["config"]).rooms.bathroom.ventilations
+      .extractor.humidity_timeout,
     60,
   );
 });
 
-test("humidity timeout settings and explanation follow English and French locales", async () => {
+test("humidity timeout settings and explanation follow English, French and Spanish locales", async () => {
   const { panel, hass } = await mount(humidityFixture());
   await open(panel, "Automatisation");
-  for (const locale of ["en", "fr-BE", "fr_CA"]) {
+  for (const locale of [
+    "en",
+    "fr-BE",
+    "fr_CA",
+    "es",
+    "es-ES",
+    "es_MX",
+    "ES-AR",
+  ]) {
     panel.hass = { ...hass, locale: { language: locale } };
     await settle(panel);
     const text = panel.shadowRoot!.textContent!;
@@ -419,10 +869,15 @@ test("humidity timeout settings and explanation follow English and French locale
       assert.match(text, /Limit extraction below the start threshold/);
       assert.match(text, /Reaching the start threshold resets the timer/);
       assert.match(text, /extraction can restart/);
-    } else {
+    } else if (locale.startsWith("fr")) {
       assert.match(text, /Limiter l’extraction sous le seuil de démarrage/);
       assert.match(text, /remet le compteur à zéro/);
       assert.match(text, /l’extraction peut redémarrer/);
+    } else {
+      assert.match(text, /Limitar la extracción por debajo del umbral de inicio/);
+      assert.match(text, /Alcanzar el umbral de inicio reinicia el temporizador/);
+      assert.match(text, /Se respeta el tiempo mínimo de funcionamiento/);
+      assert.match(text, /la extracción puede reiniciarse/);
     }
     assert.match(text, /Extracteur personnel/);
   }
@@ -447,7 +902,21 @@ test("humidity timeout countdown is separate from minimum running time and its r
   const countdown = panel.shadowRoot!.querySelector(
     '[data-status="humidity-timeout"]',
   )!.textContent!;
-  assert.match(countdown, /Retour au repos temporisé : temps restant\s+180\s+min/);
+  assert.match(
+    countdown,
+    /Retour au repos temporisé : temps restant\s+180\s+min/,
+  );
+  panel.hass = { ...hass, locale: { language: "es_MX" } };
+  await settle(panel);
+  assert.match(
+    panel.shadowRoot!.querySelector(".reason")!.textContent!,
+    /Tiempo mínimo de funcionamiento.*Tiempo restante 2 min/,
+  );
+  assert.match(
+    panel.shadowRoot!.querySelector('[data-status="humidity-timeout"]')!
+      .textContent!,
+    /Retorno al reposo temporizado: tiempo restante\s+180\s+min/,
+  );
   emit({
     ...initial,
     status: {
@@ -463,11 +932,17 @@ test("humidity timeout countdown is separate from minimum running time and its r
   await settle(panel);
   assert.match(
     panel.shadowRoot!.querySelector(".reason")!.textContent!,
-    /Au repos : durée sous le seuil de démarrage écoulée/,
+    /En reposo: ha transcurrido el tiempo por debajo del umbral de inicio/,
   );
   assert.equal(
     panel.shadowRoot!.querySelector('[data-status="humidity-timeout"]'),
     null,
+  );
+  panel.hass = { ...hass, locale: { language: "fr-BE" } };
+  await settle(panel);
+  assert.match(
+    panel.shadowRoot!.querySelector(".reason")!.textContent!,
+    /Au repos : durée sous le seuil de démarrage écoulée/,
   );
   panel.hass = { ...hass, locale: { language: "en" } };
   await settle(panel);

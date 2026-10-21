@@ -8,12 +8,27 @@ import {
   validVent,
   createId,
 } from "../src/model";
-import { en, fr, translate } from "../src/translations";
+import { en, es, fr, resolveLanguage, translate } from "../src/translations";
 
-test("localization parity and French variants", () => {
-  assert.deepEqual(Object.keys(en).sort(), Object.keys(fr).sort());
-  assert.equal(translate("rooms", "fr-BE"), "Pièces");
-  assert.equal(translate("rooms", "de"), "Rooms");
+test("translation catalogs are complete and have no empty labels", () => {
+  for (const catalog of [fr, es]) {
+    assert.deepEqual(Object.keys(en).sort(), Object.keys(catalog).sort());
+    assert.ok(Object.values(catalog).every((value) => value.trim().length > 0));
+  }
+});
+test("French and Spanish locale variants resolve consistently with English fallback", () => {
+  for (const locale of ["fr", "fr-BE", "fr_CA", "FR-FR"]) {
+    assert.equal(resolveLanguage(locale), "fr");
+    assert.equal(translate("rooms", locale), "Pièces");
+  }
+  for (const locale of ["es", "es-ES", "es_MX", "ES-AR"]) {
+    assert.equal(resolveLanguage(locale), "es");
+    assert.equal(translate("rooms", locale), "Habitaciones");
+  }
+  for (const locale of [undefined, "", "de", "en-GB", "pt-BR"]) {
+    assert.equal(resolveLanguage(locale), "en");
+    assert.equal(translate("rooms", locale), "Rooms");
+  }
 });
 test("defaults are opt-in and independent", () => {
   const a = newVentilation("fan.a", "A"),

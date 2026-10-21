@@ -1,222 +1,445 @@
 <!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Havo — Simulation</title>
-    <style>
-      body {
-        margin: 0;
-        font: 14px system-ui;
-        --primary-color: #00838f;
-        --primary-text-color: #202428;
-        --secondary-text-color: #626c72;
-        --primary-background-color: #fafafa;
-        --card-background-color: white;
-        --divider-color: #dce0e2;
-        --secondary-background-color: #f0f2f3;
-        --text-primary-color: white;
-        --error-color: #b3261e;
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Havo — isolated preview with simulated data</title>
+<link rel="icon" href="data:,">
+<style>
+  body {
+    margin:0; height:100dvh; display:flex; flex-direction:column; overflow:hidden;
+    color-scheme:light; font-family:system-ui,sans-serif;
+    --ha-font-family-body:system-ui,sans-serif; --ha-font-family-heading:system-ui,sans-serif;
+    --ha-font-size-s:12px; --ha-font-size-m:14px; --ha-font-size-l:16px; --ha-font-size-xl:20px; --ha-font-size-2xl:24px;
+    --ha-font-weight-normal:400; --ha-font-weight-medium:500; --ha-font-weight-bold:700;
+    --ha-line-height-normal:1.55; --ha-line-height-condensed:1.2;
+    --ha-space-2:8px; --ha-space-3:12px; --ha-space-4:16px; --ha-space-5:20px; --ha-space-6:24px;
+    --ha-card-border-radius:12px; --ha-border-radius-lg:12px; --ha-border-radius-md:8px; --ha-card-box-shadow:none;
+    --primary-color:#0277bd; --primary-text-color:#212121; --secondary-text-color:#626262; --disabled-text-color:#777;
+    --primary-background-color:#fafafa; --card-background-color:#fff; --secondary-background-color:#f0f2f3; --divider-color:#d4d8db;
+    --ha-card-background:var(--card-background-color); --text-primary-color:#fff; --error-color:#b52222;
+    --app-header-background-color:#fff; --app-header-text-color:#212121; --app-header-border-bottom:1px solid var(--divider-color);
+    --input-fill-color:#f4f6f7; --input-ink-color:#212121; --input-label-ink-color:#555;
+    --input-outlined-idle-border-color:#90979d; --input-outlined-hover-border-color:#51585e;
+    --state-fan-on-color:#986000; --state-fan-off-color:#697079;
+  }
+  body[data-theme="dark"] {
+    color-scheme:dark; --primary-color:#7ccaff; --primary-text-color:#f1f3f5; --secondary-text-color:#b7bfc8; --disabled-text-color:#919ba6;
+    --primary-background-color:#111418; --card-background-color:#1b2026; --secondary-background-color:#252c34; --divider-color:#444d58;
+    --text-primary-color:#122332; --error-color:#ffaaa6;
+    --app-header-background-color:#1b2026; --app-header-text-color:#f1f3f5;
+    --input-fill-color:#252c34; --input-ink-color:#f1f3f5; --input-label-ink-color:#c4ccd5;
+    --input-outlined-idle-border-color:#637181; --input-outlined-hover-border-color:#b7c7d8;
+    --state-fan-on-color:#ffcf75; --state-fan-off-color:#a6b1bf;
+  }
+  body[data-theme="contrast"] {
+    --primary-color:#6a1745; --primary-text-color:#172e28; --secondary-text-color:#455c53; --disabled-text-color:#68746e;
+    --primary-background-color:#f5f1e6; --card-background-color:#fffdf5; --secondary-background-color:#e5ebdf; --divider-color:#9baaa0;
+    --text-primary-color:#fff; --error-color:#9f2029;
+    --app-header-background-color:#163e31; --app-header-text-color:#fffaf0; --app-header-border-bottom:2px solid #6a1745;
+    --input-fill-color:#fffdf5; --input-ink-color:#172e28; --input-label-ink-color:#455c53;
+    --input-outlined-idle-border-color:#677a6d; --input-outlined-hover-border-color:#172e28;
+    --ha-font-family-body:Verdana,Geneva,sans-serif; --ha-font-family-heading:Verdana,Geneva,sans-serif;
+    --ha-card-border-radius:4px; --ha-border-radius-lg:4px; --ha-border-radius-md:3px;
+    --ha-space-2:10px; --ha-space-3:14px; --ha-space-4:18px; --ha-space-5:22px; --ha-space-6:26px;
+    --state-fan-on-color:#795000; --state-fan-off-color:#50635a;
+  }
+  body.large-text { --ha-font-size-s:15px; --ha-font-size-m:17.5px; --ha-font-size-l:20px; --ha-font-size-xl:25px; --ha-font-size-2xl:30px; }
+  .harness { background:#e6edf3; color:#162635; padding:6px 10px; font:12px/1.4 system-ui,sans-serif; display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; flex-shrink:0; border-bottom:1px solid #a9b4bf; }
+  .harness strong { font-weight:700; }
+  .harness button { min-height:32px; padding:4px 8px; background:#fff; color:#162635; border:1px solid #8292a2; border-radius:4px; font:inherit; cursor:pointer; }
+  .harness button:focus-visible { outline:2px solid #005f9c; outline-offset:2px; }
+  .harness button[aria-pressed="true"] { background:#183c58; color:#fff; }
+  .harness details { flex-basis:100%; }
+  .harness summary { cursor:pointer; }
+  .harness p { margin:4px 0; max-width:85ch; }
+  havo-panel { height:auto; min-height:0; flex:1; }
+
+  body[data-theme="home"] {
+    color-scheme:dark; --primary-color:rgb(202,158,230); --primary-text-color:#c6d0f5; --secondary-text-color:#b5bfe2; --disabled-text-color:#838ba7;
+    --primary-background-color:#292c3c; --card-background-color:#303446; --secondary-background-color:#292c3c; --divider-color:rgba(131,139,167,.15);
+    --text-primary-color:#232634; --error-color:#e78284;
+    --app-header-background-color:#232634; --app-header-text-color:#c6d0f5;
+    --input-fill-color:#292c3c; --input-ink-color:#c6d0f5; --input-label-ink-color:#b5bfe2;
+    --input-outlined-idle-border-color:#838ba7; --input-outlined-hover-border-color:#c6d0f5;
+    --state-fan-on-color:#e5c890; --state-fan-off-color:#838ba7;
+  }
+  havo-panel { overflow:hidden; }
+</style>
+</head>
+<body>
+<div class="harness" aria-label="Simulated preview tools">
+  <strong id="simulation-label">Simulated data · no home connected</strong>
+  <button id="language">Language: EN</button>
+  <button id="theme">Theme: light</button>
+  <button id="admin">Role: administrator</button>
+  <button id="text-size" aria-pressed="false">Text: 100 %</button>
+  <details><summary id="preview-about">About this preview</summary><p id="preview-description"></p><p id="native-action" role="status"></p><p id="sidebar-action" role="status" hidden></p></details>
+</div>
+<havo-panel></havo-panel>
+<script type="module">
+import "../custom_components/havo/frontend/havo-panel.js";
+
+// Preview-only SVG renderer; no private Home Assistant controls are imported.
+// Material Design Icons by Pictogrammers, Apache 2.0.
+// License: https://github.com/Templarian/MaterialDesign/blob/master/LICENSE
+// SVG sources: https://github.com/Templarian/MaterialDesign/tree/master/svg
+const previewIconPaths = {
+  "menu": ["M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"],
+  "fan": [
+    "M12,11A1,1 0 0,0 11,12A1,1 0 0,0 12,13A1,1 0 0,0 13,12A1,1 0 0,0 12,11M12.5,2C17,2 17.11,5.57 14.75,6.75C13.76,7.24 13.32,8.29 13.13,9.22C13.61,9.42 14.03,9.73 14.35,10.13C18.05,8.13 22.03,8.92 22.03,12.5C22.03,17 18.46,17.1 17.28,14.73C16.78,13.74 15.72,13.3 14.79,13.11C14.59,13.59 14.28,14 13.88,14.34C15.87,18.03 15.08,22 11.5,22C7,22 6.91,18.42 9.27,17.24C10.25,16.75 10.69,15.71 10.89,14.79C10.4,14.59 9.97,14.27 9.65,13.87C5.96,15.85 2,15.07 2,11.5C2,7 5.56,6.89 6.74,9.26C7.24,10.25 8.29,10.68 9.22,10.87C9.41,10.39 9.73,9.97 10.14,9.65C8.15,5.96 8.94,2 12.5,2Z"
+  ],
+  "fan-off": [
+    "M12.5,2C9.64,2 8.57,4.55 9.29,7.47L15,13.16C15.87,13.37 16.81,13.81 17.28,14.73C18.46,17.1 22.03,17 22.03,12.5C22.03,8.92 18.05,8.13 14.35,10.13C14.03,9.73 13.61,9.42 13.13,9.22C13.32,8.29 13.76,7.24 14.75,6.75C17.11,5.57 17,2 12.5,2M3.28,4L2,5.27L4.47,7.73C3.22,7.74 2,8.87 2,11.5C2,15.07 5.96,15.85 9.65,13.87C9.97,14.27 10.4,14.59 10.89,14.79C10.69,15.71 10.25,16.75 9.27,17.24C6.91,18.42 7,22 11.5,22C13.8,22 14.94,20.36 14.94,18.21L18.73,22L20,20.72L3.28,4Z"
+  ],
+  "open-in-new": [
+    "M14,3V5H17.59L7.76,14.83L9.17,16.24L19,6.41V10H21V3M19,19H5V5H12V3H5C3.89,3 3,3.9 3,5V19A2,2 0 0,0 5,21H19A2,2 0 0,0 21,19V12H19V19Z"
+  ],
+  "power": [
+    "M16.56,5.44L15.11,6.89C16.84,7.94 18,9.83 18,12A6,6 0 0,1 12,18A6,6 0 0,1 6,12C6,9.83 7.16,7.94 8.88,6.88L7.44,5.44C5.36,6.88 4,9.28 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12C20,9.28 18.64,6.88 16.56,5.44M13,3H11V13H13"
+  ],
+  "plus-circle-outline": [
+    "M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13,7H11V11H7V13H11V17H13V13H17V11H13V7Z"
+  ],
+  "arrow-left": [
+    "M20,11V13H8L13.5,18.5L12.08,19.92L4.16,12L12.08,4.08L13.5,5.5L8,11H20Z"
+  ],
+  "alert-circle-outline": [
+    "M11,15H13V17H11V15M11,7H13V13H11V7M12,2C6.47,2 2,6.5 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20Z"
+  ],
+  "check-circle-outline": [
+    "M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M12 20C7.59 20 4 16.41 4 12S7.59 4 12 4 20 7.59 20 12 16.41 20 12 20M16.59 7.58L10 14.17L7.41 11.59L6 13L10 17L18 9L16.59 7.58Z"
+  ]
+};
+class PreviewIcon extends HTMLElement {
+  static observedAttributes = ["icon"];
+  constructor() { super(); this.attachShadow({ mode: "open" }); }
+  connectedCallback() { this.renderIcon(); }
+  attributeChangedCallback() { this.renderIcon(); }
+  renderIcon() {
+    const namespace = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(namespace, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const paths = previewIconPaths[(this.getAttribute("icon") ?? "").replace(/^mdi:/, "")] ?? [];
+    for (const d of paths) {
+      const path = document.createElementNS(namespace, "path");
+      path.setAttribute("d", d); svg.append(path);
+    }
+    const style = document.createElement("style");
+    style.textContent = ":host{display:inline-flex;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px);align-items:center;justify-content:center;vertical-align:middle;flex-shrink:0}svg{display:block;width:100%;height:100%;fill:currentColor}";
+    this.shadowRoot.replaceChildren(style, svg);
+  }
+}
+customElements.define("ha-icon", PreviewIcon);
+
+const query = new URLSearchParams(location.search);
+const previewLanguages = ["en", "fr", "es"];
+const requestedLocale = query.get("lang") || "en";
+const requestedLanguage = requestedLocale.trim().toLowerCase().split(/[-_]/)[0];
+let previewLocale = previewLanguages.includes(requestedLanguage) ? requestedLanguage : "en";
+const themes = ["light", "dark", "home", "contrast"];
+let themeIndex = Math.max(0, themes.indexOf(query.get("theme")));
+const previewCopy = {
+  en: {
+    title: "Havo — Home Assistant Ventilation Orchestrator · simulated preview",
+    tools: "Simulated preview tools", simulation: "Simulated data · no home connected",
+    language: "Language: EN", theme: "Theme", themes: { light: "light", dark: "dark", home: "home colours", contrast: "custom high contrast" },
+    role: "Role", administrator: "administrator", user: "user", text: "Text", about: "About this preview",
+    description: "Six configured rooms and two rooms ready to configure. States, readings and commands stay in this browser tab, with no Home Assistant connection or automation engine. On/off, stepped, continuous and preset-only fans use realistic sample capabilities. The optional extraction timeout is disabled by default. Icons are official Material Design SVGs rendered only for this preview.",
+    nativeDefault: "Native fan controls require the Home Assistant frontend.",
+    nativeRequested: "Native controls requested for {entity}. Open Havo in Home Assistant to use them.",
+    sidebarRequested: "Home Assistant menu requested. This isolated preview has no native sidebar.",
+  },
+  fr: {
+    title: "Havo — Home Assistant Ventilation Orchestrator · aperçu simulé",
+    tools: "Outils de l’aperçu simulé", simulation: "Données simulées · aucun logement connecté",
+    language: "Langue : FR", theme: "Thème", themes: { light: "clair", dark: "sombre", home: "couleurs du logement", contrast: "contraste personnalisé" },
+    role: "Rôle", administrator: "administrateur", user: "utilisateur", text: "Texte", about: "À propos de cet aperçu",
+    description: "Six pièces configurées et deux pièces à configurer. États, mesures et commandes restent dans cet onglet, sans connexion Home Assistant ni moteur d’automatisation. Appareils marche/arrêt, à paliers, à vitesse continue et à presets seuls, avec des capacités fictives réalistes. Le délai facultatif d’extraction est désactivé par défaut. Les icônes sont les SVG Material Design officiels rendus uniquement pour cet aperçu.",
+    nativeDefault: "Les contrôles natifs des ventilations nécessitent le frontend Home Assistant.",
+    nativeRequested: "Contrôles natifs demandés pour {entity}. Ouvre Havo dans Home Assistant pour les utiliser.",
+    sidebarRequested: "Ouverture du menu Home Assistant demandée. Cet aperçu isolé ne contient pas de barre latérale native.",
+  },
+  es: {
+    title: "Havo — Home Assistant Ventilation Orchestrator · vista previa simulada",
+    tools: "Herramientas de la vista previa simulada", simulation: "Datos simulados · ninguna vivienda conectada",
+    language: "Idioma: ES", theme: "Tema", themes: { light: "claro", dark: "oscuro", home: "colores de la vivienda", contrast: "alto contraste personalizado" },
+    role: "Rol", administrator: "administrador", user: "usuario", text: "Texto", about: "Acerca de esta vista previa",
+    description: "Seis habitaciones configuradas y dos listas para configurar. Los estados, las lecturas y las órdenes permanecen en esta pestaña, sin conexión con Home Assistant ni motor de automatización. Los ventiladores de encendido/apagado, velocidades discretas, velocidad continua y solo modos predefinidos utilizan capacidades simuladas realistas. El límite opcional de extracción está desactivado por defecto. Los iconos son SVG oficiales de Material Design, utilizados únicamente en esta vista previa.",
+    nativeDefault: "Los controles nativos del ventilador requieren la interfaz de Home Assistant.",
+    nativeRequested: "Se han solicitado los controles nativos de {entity}. Abre Havo en Home Assistant para utilizarlos.",
+    sidebarRequested: "Se ha solicitado abrir el menú de Home Assistant. Esta vista previa aislada no tiene barra lateral nativa.",
+  },
+};
+const demoNames = {
+  areas: {
+    bathroom: { en: "Bathroom", fr: "Salle de bain", es: "Baño" },
+    lounge: { en: "Living room", fr: "Salon", es: "Salón" },
+    office: { en: "Office", fr: "Bureau", es: "Despacho" },
+    bedroom: { en: "Bedroom", fr: "Chambre", es: "Dormitorio" },
+    kitchen: { en: "Kitchen", fr: "Cuisine", es: "Cocina" },
+    laundry: { en: "Laundry room", fr: "Buanderie", es: "Lavadero" },
+    garage: { en: "Garage", fr: "Garage", es: "Garaje" },
+    attic: { en: "Attic", fr: "Grenier", es: "Ático" },
+  },
+  fans: {
+    bathroom: { en: "Extractor fan", fr: "Extracteur", es: "Extractor" },
+    lounge: { en: "Ceiling fan", fr: "Ventilateur de plafond", es: "Ventilador de techo" },
+    office: { en: "Desk fan", fr: "Ventilateur de bureau", es: "Ventilador de escritorio" },
+    bedroom: { en: "Tower fan", fr: "Ventilateur colonne", es: "Ventilador de torre" },
+    kitchen: { en: "Ventilation", fr: "Ventilation", es: "Ventilación" },
+    laundry: { en: "Air extractor", fr: "Extracteur d’air", es: "Extractor de aire" },
+    garage: { en: "Workshop fan", fr: "Ventilateur de l’atelier", es: "Ventilador del taller" },
+  },
+  entities: {
+    "weather.demo_home": { en: "Home weather", fr: "Météo du logement", es: "Tiempo en casa" },
+    "sensor.demo_outdoor_temperature": { en: "Outdoor temperature", fr: "Température extérieure", es: "Temperatura exterior" },
+    "sensor.demo_outdoor_humidity": { en: "Outdoor humidity", fr: "Humidité extérieure", es: "Humedad exterior" },
+  },
+};
+const defaults = {
+  mode: "temperature", enabled: false,
+  temperature_on: 25, temperature_off: 24, temperature_full: 30,
+  humidity_on: 75, humidity_hysteresis: 5, humidity_full: 85,
+  humidity_timeout_enabled: false, humidity_timeout: 10800,
+  background: 0, speed_min: 40, speed_max: 100,
+  min_on: 300, min_off: 120, manual_pause: 3600,
+};
+const capabilities = (speed = false, step = 1, presets = false, available = true) => ({
+  available, speed, step, presets, turn_on: true, turn_off: true,
+});
+const fixtures = [
+  { id: "bathroom", mode: "humidity", enabled: true, state: "on", temperature: 22.4, humidity: 78.6, caps: capabilities() },
+  { id: "lounge", mode: "temperature", enabled: true, state: "on", temperature: 27.5, humidity: 48, percentage: 70, caps: capabilities(true) },
+  { id: "office", mode: "temperature", enabled: true, state: "on", temperature: 26.8, humidity: 51, percentage: 66, caps: capabilities(true, 100 / 3) },
+  { id: "bedroom", mode: "temperature", enabled: false, state: "off", temperature: 21, humidity: 56, caps: capabilities(false, 1, true) },
+  { id: "kitchen", mode: "humidity", enabled: true, state: "off", temperature: 22.8, humidity: 52, caps: capabilities() },
+  { id: "laundry", mode: "humidity", enabled: true, state: "unavailable", temperature: 20.5, humidity: 64, caps: capabilities(false, 1, false, false) },
+];
+const snapshot = {
+  revision: 1, admin: query.get("role") !== "user",
+  areas: Object.entries(demoNames.areas).map(([id, names]) => ({ id, name: names.en })),
+  config: {
+    weather_entity_id: "weather.demo_home",
+    outdoor_temperature_entity_id: "sensor.demo_outdoor_temperature",
+    outdoor_humidity_entity_id: "sensor.demo_outdoor_humidity",
+    rooms: {},
+  },
+  entities: [], status: {}, controllable: fixtures.map(({ id }) => id),
+};
+const measures = {};
+const addEntity = (entity_id, names, domain, area_id = null, unit = null, device_class = null, caps = null) => {
+  demoNames.entities[entity_id] = names;
+  snapshot.entities.push({ entity_id, name: names.en, domain, area_id, unit, device_class, capabilities: caps });
+};
+for (const fixture of fixtures) {
+  const { id, mode, enabled, state, caps, temperature, humidity } = fixture;
+  const entity_id = `fan.demo_${id}`;
+  const temperatureId = `sensor.demo_${id}_temperature`;
+  const humidityId = `sensor.demo_${id}_humidity`;
+  snapshot.config.rooms[id] = {
+    temperature_entity_id: temperatureId, humidity_entity_id: humidityId,
+    ventilations: { [id]: { ...defaults, entity_id, name: demoNames.fans[id].en, mode, enabled } },
+  };
+  addEntity(entity_id, demoNames.fans[id], "fan", id, null, null, caps);
+  addEntity(temperatureId, { en: `${demoNames.areas[id].en} temperature`, fr: `Température · ${demoNames.areas[id].fr}`, es: `Temperatura · ${demoNames.areas[id].es}` }, "sensor", id, "°C", "temperature");
+  addEntity(humidityId, { en: `${demoNames.areas[id].en} humidity`, fr: `Humidité · ${demoNames.areas[id].fr}`, es: `Humedad · ${demoNames.areas[id].es}` }, "sensor", id, "%", "humidity");
+  measures[temperatureId] = temperature; measures[humidityId] = humidity;
+  snapshot.status[id] = {
+    state, percentage: caps.speed ? fixture.percentage : null, capabilities: caps,
+    reason: !caps.available ? "unavailable" : !enabled ? "disabled" : state === "on" ? mode : "idle",
+    pause_until: null, deadline: null, humidity_timeout_at: null,
+  };
+}
+addEntity("fan.demo_garage", demoNames.fans.garage, "fan", "garage", null, null, capabilities(true));
+addEntity("weather.demo_home", demoNames.entities["weather.demo_home"], "weather");
+addEntity("sensor.demo_outdoor_temperature", demoNames.entities["sensor.demo_outdoor_temperature"], "sensor", null, "°C", "temperature");
+addEntity("sensor.demo_outdoor_humidity", demoNames.entities["sensor.demo_outdoor_humidity"], "sensor", null, "%", "humidity");
+measures["sensor.demo_outdoor_temperature"] = 13.2;
+measures["sensor.demo_outdoor_humidity"] = 78;
+const missingOutdoor = query.get("outdoor") === "missing";
+if (missingOutdoor) {
+  snapshot.config.weather_entity_id = null;
+  snapshot.config.outdoor_temperature_entity_id = null;
+  snapshot.config.outdoor_humidity_entity_id = null;
+}
+// Explicit optional scenario; normal fixtures keep the extraction timeout disabled.
+if (query.get("timeout") === "active") {
+  snapshot.config.rooms.bathroom.ventilations.bathroom.humidity_timeout_enabled = true;
+  measures["sensor.demo_bathroom_humidity"] = missingOutdoor ? 72.5 : 67.5;
+  snapshot.status.bathroom.humidity_timeout_at = Date.now() / 1000 + 90 * 60;
+}
+const clamp = (value) => Math.max(0, Math.min(1, value));
+const saturation = (temperature) => 6.11 * 10 ** (7.5 * temperature / (237.3 + temperature));
+// Mirror fans.py: integer HA levels, nearest normalized bounds, ties upward.
+// Zero represents rest and must not snap up to the first running speed.
+function supportedPercentage(target, caps, low = 1, high = 100) {
+  if (!caps.speed) throw { code: "speed_unsupported" };
+  if (target <= 0) return 0;
+  const rawCount = 100 / caps.step;
+  const wholeCount = Math.floor(rawCount);
+  const roundedCount = rawCount - wholeCount === 0.5
+    ? wholeCount + wholeCount % 2
+    : Math.round(rawCount);
+  const count = Math.max(1, Math.min(100, roundedCount));
+  const levels = [...new Set(Array.from({ length: count }, (_, index) => Math.max(1, Math.floor((index + 1) * 100 / count))))];
+  const nearest = (values, value) => values.reduce((best, candidate) => Math.abs(candidate - value) <= Math.abs(best - value) ? candidate : best);
+  const lower = nearest(levels, low), upper = nearest(levels, high);
+  return nearest(levels.filter(value => lower <= value && value <= upper), target);
+}
+// Display calculations mirror climate.py; this is not the runtime engine.
+function recalculateReadings() {
+  const liveIds = [];
+  for (const [roomId, room] of Object.entries(snapshot.config.rooms)) {
+    for (const [id, vent] of Object.entries(room.ventilations)) {
+      liveIds.push(id);
+      const entity = snapshot.entities.find(({ entity_id }) => entity_id === vent.entity_id);
+      const status = snapshot.status[id] ??= { state: "off", reason: "disabled", percentage: null };
+      status.capabilities = entity?.capabilities ?? capabilities(false, 1, false, false);
+      const readings = { temperature: measures[room.temperature_entity_id] ?? null, humidity: measures[room.humidity_entity_id] ?? null, sources: { temperature: room.temperature_entity_id, humidity: room.humidity_entity_id } };
+      for (const kind of ["temperature", "humidity"]) {
+        const source = snapshot.config[`outdoor_${kind}_entity_id`];
+        const dedicated = measures[source];
+        const weather = snapshot.config.weather_entity_id;
+        readings[`outdoor_${kind}`] = dedicated ?? (weather ? kind === "temperature" ? 13.2 : 78 : null);
+        readings.sources[`outdoor_${kind}`] = dedicated != null ? source : weather;
       }
-      .demo {
-        padding: 10px 16px;
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        border-bottom: 1px solid var(--divider-color);
-      }
-      button {
-        font: inherit;
-        padding: 6px 10px;
-      }
-      havo-panel {
-        display: block;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="demo">
-      <strong>Simulation · appareils fictifs</strong
-      ><button id="language">FR / EN</button
-      ><button id="theme">Clair / sombre</button
-      ><button id="role">Administrateur / utilisateur</button>
-    </div>
-    <havo-panel></havo-panel>
-    <script type="module">
-      import "../custom_components/havo/frontend/havo-panel.js";
-      class DemoIcon extends HTMLElement {
-        connectedCallback() {
-          this.textContent = "◉";
-          this.setAttribute("aria-hidden", "true");
+      status.readings = readings;
+      const decision = { valid: true, active: false, demand: 0, on: vent.temperature_on, off: vent.temperature_off, fallback: false, outdoor_equivalent: null, drying_potential: null, thermal_factor: null };
+      let value = readings.temperature;
+      let full = vent.temperature_full;
+      if (vent.mode === "humidity") {
+        value = readings.humidity; full = vent.humidity_full; decision.on = vent.humidity_on;
+        decision.fallback = [readings.temperature, readings.outdoor_temperature, readings.outdoor_humidity].includes(null);
+        if (!decision.fallback && value !== null) {
+          decision.outdoor_equivalent = readings.outdoor_humidity * saturation(readings.outdoor_temperature) / saturation(readings.temperature);
+          decision.drying_potential = clamp((value - decision.outdoor_equivalent) / 20);
+          decision.thermal_factor = clamp(1 - Math.max(0, readings.temperature - readings.outdoor_temperature - 10) / 20);
+          decision.on -= 5 * decision.drying_potential * decision.thermal_factor;
         }
+        decision.off = decision.on - vent.humidity_hysteresis;
       }
-      customElements.define("ha-icon", DemoIcon);
-      const panel = document.querySelector("havo-panel");
-      const defaults = {
-        mode: "temperature",
-        enabled: false,
-        temperature_on: 25,
-        temperature_off: 24,
-        temperature_full: 30,
-        humidity_on: 60,
-        humidity_hysteresis: 5,
-        humidity_full: 75,
-        background: 0,
-        speed_min: 40,
-        speed_max: 100,
-        min_on: 300,
-        min_off: 120,
-        manual_pause: 3600,
-      };
-      const caps = (speed) => ({
-        available: true,
-        speed,
-        turn_on: true,
-        turn_off: true,
-        step: speed ? 100 / 3 : 1,
-        presets: false,
-      });
-      let snapshot = {
-        revision: 1,
-        admin: true,
-        areas: [
-          { id: "bathroom", name: "Salle de bains" },
-          { id: "office", name: "Bureau" },
-        ],
-        config: {
-          weather_entity_id: null,
-          outdoor_temperature_entity_id: null,
-          outdoor_humidity_entity_id: null,
-          rooms: {},
-        },
-        entities: [],
-        status: {},
-        controllable: ["bathroom", "office"],
-      };
-      for (const [id, name, speed, mode] of [
-        ["bathroom", "Extracteur", false, "humidity"],
-        ["office", "Ventilateur", true, "temperature"],
-      ]) {
-        const entity_id = "fan.demo_" + id;
-        snapshot.config.rooms[id] = {
-          temperature_entity_id: "sensor.temperature",
-          humidity_entity_id: "sensor.humidity",
-          ventilations: { [id]: { ...defaults, entity_id, name, mode } },
-        };
-        snapshot.entities.push({
-          entity_id,
-          name,
-          domain: "fan",
-          area_id: id,
-          unit: null,
-          device_class: null,
-          capabilities: caps(speed),
-        });
-        snapshot.status[id] = {
-          reason: "disabled",
-          state: "off",
-          capabilities: caps(speed),
-          percentage: speed ? 0 : null,
-          readings: {
-            temperature: 26,
-            humidity: 64,
-            outdoor_temperature: 8,
-            outdoor_humidity: 80,
-            sources: {},
-          },
-          decision: {
-            valid: true,
-            active: false,
-            demand: 0,
-            on: mode === "humidity" ? 58 : 25,
-            off: mode === "humidity" ? 53 : 24,
-            fallback: false,
-            outdoor_equivalent: 28,
-            drying_potential: 1,
-            thermal_factor: 0.6,
-          },
-        };
+      decision.valid = value !== null;
+      decision.active = decision.valid && (status.state === "on" ? value > decision.off : value >= decision.on);
+      decision.demand = decision.valid ? clamp((value - decision.on) / (full - decision.on)) : 0;
+      status.decision = decision;
+      const target = decision.active ? vent.speed_min + (vent.speed_max - vent.speed_min) * decision.demand : vent.background;
+      status.target_percentage = status.capabilities.speed && vent.enabled ? supportedPercentage(target, status.capabilities, decision.active ? vent.speed_min : 1, vent.speed_max) : null;
+      if (!vent.humidity_timeout_enabled || vent.mode !== "humidity" || !vent.enabled || !decision.valid || value >= decision.on || value <= decision.off) status.humidity_timeout_at = null;
+      if (!status.capabilities.available) status.reason = "unavailable";
+      else if (!vent.enabled) status.reason = "disabled";
+      else if (!decision.valid) status.reason = "missing_source";
+      else if (status.pause_until > Date.now() / 1000) status.reason = "manual_pause";
+      else status.reason = decision.active ? vent.mode : "idle";
+    }
+  }
+  snapshot.controllable = liveIds;
+  for (const id of Object.keys(snapshot.status)) if (!liveIds.includes(id)) delete snapshot.status[id];
+}
+let callback;
+let lastNativeEntity;
+let sidebarRequested = false;
+const panel = document.querySelector("havo-panel");
+// Home Assistant supplies this layout property; the panel does not guess it.
+const narrowViewport = matchMedia("(max-width: 870px)");
+panel.narrow = narrowViewport.matches;
+narrowViewport.addEventListener("change", event => { panel.narrow = event.matches; });
+window.havoCalls = [];
+window.havoPreviewSnapshot = () => structuredClone(snapshot);
+const publish = () => callback?.(structuredClone(snapshot));
+const hass = {
+  locale: { language: requestedLocale },
+  themes: { darkMode: ["dark", "home"].includes(themes[themeIndex]) },
+  connection: {
+    async subscribeMessage(listener) { callback = listener; publish(); return () => { if (callback === listener) callback = undefined; }; },
+  },
+  async callWS(message) {
+    window.havoCalls.push(structuredClone(message));
+    if (message.type === "havo/save") {
+      if (!snapshot.admin) throw { code: "forbidden" };
+      if (message.revision !== snapshot.revision) throw { code: "conflict" };
+      snapshot.config = structuredClone(message.config); snapshot.revision++;
+    } else if (message.type === "havo/command") {
+      const { vent_id: id, command, value } = message;
+      const vent = Object.values(snapshot.config.rooms).find(room => room.ventilations[id])?.ventilations[id];
+      const status = snapshot.status[id];
+      if (!vent || !status || !status.capabilities.available) throw { code: "unavailable" };
+      if (command === "automation") {
+        if (!snapshot.admin) throw { code: "forbidden" };
+        vent.enabled = value; status.pause_until = null; snapshot.revision++;
+      } else if (command === "resume") {
+        status.pause_until = null;
+      } else {
+        if (command === "turn_on") { status.state = "on"; if (status.capabilities.speed && !status.percentage) status.percentage = supportedPercentage(vent.speed_min, status.capabilities, vent.speed_min, vent.speed_max); }
+        else if (command === "turn_off") { status.state = "off"; if (status.capabilities.speed) status.percentage = 0; }
+        else if (command === "set_percentage") {
+          if (!status.capabilities.speed) throw { code: "unsupported" };
+          status.percentage = supportedPercentage(value, status.capabilities);
+          status.state = status.percentage > 0 ? "on" : "off";
+        } else throw { code: "unsupported" };
+        status.pause_until = vent.enabled ? Date.now() / 1000 + vent.manual_pause : null;
+        status.humidity_timeout_at = null;
       }
-      snapshot.entities.push(
-        {
-          entity_id: "sensor.temperature",
-          name: "Température simulée",
-          domain: "sensor",
-          area_id: null,
-          unit: "°C",
-          device_class: "temperature",
-          capabilities: null,
-        },
-        {
-          entity_id: "sensor.humidity",
-          name: "Humidité simulée",
-          domain: "sensor",
-          area_id: null,
-          unit: "%",
-          device_class: "humidity",
-          capabilities: null,
-        },
-      );
-      let publish = () => {};
-      const hass = {
-        locale: { language: "fr" },
-        themes: { darkMode: false },
-        connection: {
-          async subscribeMessage(callback) {
-            publish = () => callback(structuredClone(snapshot));
-            publish();
-            return () => {};
-          },
-        },
-        async callWS(message) {
-          if (message.type === "havo/save") {
-            if (message.revision !== snapshot.revision)
-              throw { code: "conflict" };
-            snapshot.config = structuredClone(message.config);
-            snapshot.revision++;
-          }
-          if (message.type === "havo/command") {
-            const status = snapshot.status[message.vent_id];
-            if (message.command === "turn_on") status.state = "on";
-            if (message.command === "turn_off") status.state = "off";
-            if (message.command === "set_percentage") {
-              status.percentage = message.value;
-              status.state = "on";
-            }
-            if (message.command === "automation") {
-              for (const room of Object.values(snapshot.config.rooms))
-                if (room.ventilations[message.vent_id])
-                  room.ventilations[message.vent_id].enabled = message.value;
-              snapshot.revision++;
-            }
-            status.reason =
-              message.command === "resume" ? "idle" : "manual_pause";
-          }
-          publish();
-          return structuredClone(snapshot);
-        },
-      };
-      panel.hass = hass;
-      document.querySelector("#language").onclick = () => {
-        hass.locale = { language: hass.locale.language === "fr" ? "en" : "fr" };
-        panel.hass = { ...hass };
-      };
-      document.querySelector("#role").onclick = () => {
-        snapshot.admin = !snapshot.admin;
-        publish();
-      };
-      document.querySelector("#theme").onclick = () => {
-        hass.themes = { darkMode: !hass.themes.darkMode };
-        document.body.style.cssText = hass.themes.darkMode
-          ? "--primary-text-color:#e8edf0;--secondary-text-color:#a5afb6;--primary-background-color:#111519;--card-background-color:#1b2125;--divider-color:#343d43;--secondary-background-color:#272e33;color:#e8edf0;background:#111519"
-          : "";
-        panel.hass = { ...hass };
-      };
-      panel.addEventListener("hass-action", () =>
-        alert(
-          "Les commandes natives nécessitent Home Assistant. Cet aperçu utilise des appareils fictifs.",
-        ),
-      );
-    </script>
-  </body>
+    } else if (message.type !== "havo/get") throw { code: "unsupported" };
+    recalculateReadings(); publish(); return structuredClone(snapshot);
+  },
+};
+function localizeDemoNames() {
+  // Rename only known fixture labels. User-entered names remain untouched.
+  const rename = (entry, names) => { if (names && Object.values(names).includes(entry.name)) entry.name = names[previewLocale]; };
+  for (const area of snapshot.areas) rename(area, demoNames.areas[area.id]);
+  for (const entity of snapshot.entities) rename(entity, demoNames.entities[entity.entity_id]);
+  for (const room of Object.values(snapshot.config.rooms)) for (const [id, vent] of Object.entries(room.ventilations)) rename(vent, demoNames.fans[id]);
+}
+function renderHarness() {
+  const copy = previewCopy[previewLocale];
+  const separator = previewLocale === "fr" ? " : " : ": ";
+  document.documentElement.lang = previewLocale;
+  document.title = copy.title;
+  document.querySelector(".harness").setAttribute("aria-label", copy.tools);
+  document.querySelector("#simulation-label").textContent = copy.simulation;
+  document.querySelector("#language").textContent = copy.language;
+  document.querySelector("#theme").textContent = copy.theme + separator + copy.themes[themes[themeIndex]];
+  document.querySelector("#admin").textContent = copy.role + separator + copy[snapshot.admin ? "administrator" : "user"];
+  document.querySelector("#text-size").textContent = copy.text + separator + (document.body.classList.contains("large-text") ? "125" : "100") + " %";
+  document.querySelector("#preview-about").textContent = copy.about;
+  document.querySelector("#preview-description").textContent = copy.description;
+  document.querySelector("#native-action").textContent = lastNativeEntity ? copy.nativeRequested.replace("{entity}", lastNativeEntity) : copy.nativeDefault;
+  document.querySelector("#sidebar-action").hidden = !sidebarRequested;
+  document.querySelector("#sidebar-action").textContent = copy.sidebarRequested;
+}
+localizeDemoNames(); recalculateReadings(); renderHarness();
+document.body.dataset.theme = themes[themeIndex];
+if (snapshot.areas.some(area => area.id === query.get("room"))) panel.roomId = query.get("room");
+if (["control", "ventilations", "automation", "settings"].includes(query.get("view"))) panel.tab = query.get("view");
+if (query.get("view") === "global") panel.general = true;
+panel.hass = hass;
+panel.addEventListener("hass-toggle-menu", event => {
+  window.havoCalls.push({ type: "hass-toggle-menu", ...structuredClone(event.detail) });
+  sidebarRequested = true;
+  renderHarness(); document.querySelector(".harness details").open = true;
+});
+panel.addEventListener("hass-action", event => {
+  window.havoCalls.push({ type: "hass-action", ...structuredClone(event.detail) });
+  lastNativeEntity = event.detail?.config?.entity;
+  renderHarness(); document.querySelector(".harness details").open = true;
+});
+document.querySelector("#language").onclick = () => {
+  previewLocale = previewLanguages[(previewLanguages.indexOf(previewLocale) + 1) % previewLanguages.length];
+  hass.locale = { language: { en: "en", fr: "fr-BE", es: "es-MX" }[previewLocale] };
+  localizeDemoNames(); renderHarness(); panel.hass = { ...hass }; publish();
+};
+document.querySelector("#theme").onclick = () => {
+  const theme = themes[themeIndex = (themeIndex + 1) % themes.length];
+  document.body.dataset.theme = theme;
+  hass.themes = { darkMode: ["dark", "home"].includes(theme) }; panel.hass = { ...hass }; renderHarness();
+};
+document.querySelector("#admin").onclick = () => { snapshot.admin = !snapshot.admin; renderHarness(); publish(); };
+document.querySelector("#text-size").onclick = () => {
+  const large = document.body.classList.toggle("large-text");
+  document.querySelector("#text-size").setAttribute("aria-pressed", String(large)); renderHarness();
+};
+</script>
+</body>
 </html>

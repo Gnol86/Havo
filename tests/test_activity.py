@@ -288,20 +288,52 @@ async def test_rejected_capability_has_no_activity(hass, activity, requests):
     assert not any(row.get("message") for row in await recorded_entries(hass))
 
 
-@pytest.mark.parametrize("language", ["fr", "fr-BE", "fr_CA", "en", "de"])
+@pytest.mark.parametrize(
+    "language",
+    ["fr", "fr-BE", "fr_CA", "FR-ca", "es", "es-ES", "es_MX", "ES-ar", "en", "de"],
+)
 async def test_server_language_and_variants(hass, house, requests, language):
     assert "logbook" not in hass.config.components
     hass.config.language = language
     manager, _calls = house
     await manager.command("extractor", "turn_on")
     await hass.async_block_till_done()
-    expected = (
-        "Havo: mise en marche demandée — commande manuelle dans Havo"
-        if language.startswith("fr")
-        else "Havo: turn-on requested — manual command in Havo"
-    )
+    expected = {
+        "fr": "Havo: mise en marche demandée — commande manuelle dans Havo",
+        "es": "Havo: encendido solicitado — orden manual en Havo",
+    }.get(language[:2].lower(), "Havo: turn-on requested — manual command in Havo")
     assert requests[-1].data["message"] == expected
     assert manager.vent("extractor")[1]["name"] == "Extractor"
+
+
+async def test_spanish_activity_records_speed_timeout_and_failure(hass, activity):
+    hass.config.language = "es_MX"
+    context = Context()
+    async_record_command(
+        hass, context, "fan.extractor", "set_percentage", "background", 33
+    )
+    async_record_command(
+        hass, Context(), "fan.extractor", "turn_off", "humidity_timeout"
+    )
+    async_record_command(
+        hass,
+        context,
+        "fan.extractor",
+        "set_percentage",
+        "background",
+        33,
+        failed=True,
+    )
+    messages = [
+        row["message"] for row in await recorded_entries(hass) if row.get("message")
+    ]
+    assert messages == [
+        "Havo: velocidad del 33 % solicitada — ventilación de fondo",
+        "Havo: apagado solicitado — ha transcurrido el tiempo por debajo del umbral "
+        "de inicio por humedad",
+        "Havo: velocidad del 33 % solicitada — ventilación de fondo "
+        "(la orden ha fallado o ha agotado el tiempo de espera)",
+    ]
 
 
 async def test_external_changes_do_not_claim_havo_activity(hass, activity, requests):

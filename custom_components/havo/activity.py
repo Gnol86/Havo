@@ -37,6 +37,23 @@ _FR = {
     "manual": "commande manuelle dans Havo",
     "failed": "commande en échec ou délai dépassé",
 }
+_ES = {
+    "turn_on": "encendido solicitado",
+    "turn_off": "apagado solicitado",
+    "set_percentage": "velocidad del {percentage} % solicitada",
+    "temperature": "refrigeración",
+    "humidity": "extracción de humedad",
+    "humidity_timeout": (
+        "ha transcurrido el tiempo por debajo del umbral de inicio por humedad"
+    ),
+    "background": "ventilación de fondo",
+    "idle": "vuelta al reposo",
+    "minimum_run": "tiempo mínimo de funcionamiento",
+    "minimum_rest": "tiempo mínimo de reposo",
+    "manual": "orden manual en Havo",
+    "failed": "la orden ha fallado o ha agotado el tiempo de espera",
+}
+_TRANSLATIONS = {"en": _EN, "fr": _FR, "es": _ES}
 
 
 @callback
@@ -52,7 +69,7 @@ def async_record_command(
 ) -> None:
     """Record intent before dispatch, or failure after the service raises."""
     language = hass.config.language.lower().replace("_", "-").split("-", 1)[0]
-    texts = _FR if language == "fr" else _EN
+    texts = _TRANSLATIONS.get(language, _EN)
     # A new engine reason should remain visible rather than block fan control.
     detail = texts.get(reason, reason)
     action = texts[command].format(percentage=percentage)

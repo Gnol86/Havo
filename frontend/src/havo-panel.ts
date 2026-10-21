@@ -1,6 +1,6 @@
 import { LitElement, html, nothing, type PropertyValues } from "lit";
 import { keyed } from "lit/directives/keyed.js";
-import "./entity-picker";
+import { matchesEntity } from "./entity-picker";
 import {
   copy,
   createId,
@@ -9,7 +9,12 @@ import {
   newVentilation,
   validVent,
 } from "./model";
-import { translate, en, type TranslationKey } from "./translations";
+import {
+  translate,
+  resolveLanguage,
+  en,
+  type TranslationKey,
+} from "./translations";
 import { styles } from "./styles";
 import type {
   Config,
@@ -26,6 +31,7 @@ type Tab = "control" | "ventilations" | "automation" | "settings";
 export class HavoPanel extends LitElement {
   static properties = {
     hass: { attribute: false },
+    narrow: { type: Boolean },
     snapshot: { state: true },
     roomId: { state: true },
     tab: { state: true },
@@ -42,6 +48,7 @@ export class HavoPanel extends LitElement {
   };
   static styles = styles;
   hass?: Hass;
+  narrow = false;
   private snapshot?: Snapshot;
   private draft = new Draft();
   private roomId = "";
@@ -237,10 +244,12 @@ export class HavoPanel extends LitElement {
       this.requestUpdate();
     }
   }
-  private async command(id: string, command: string, value?: number | boolean) {
-    if (!this.hass || this.busy || this.draft.dirty) return;
-    this.busy = true;
-    this.error = "";
+  private async requestCommand(
+    id: string,
+    command: string,
+    value?: number | boolean,
+  ) {
+    if (!this.hass) return false;
     const epoch = this.epoch;
     try {
       const result = await this.hass.callWS<Snapshot>({
@@ -249,9 +258,105 @@ export class HavoPanel extends LitElement {
         command,
         ...(value !== undefined ? { value } : {}),
       });
-      if (epoch === this.epoch) this.receive(result);
+      if (epoch !== this.epoch) return false;
+      this.receive(result);
+      return true;
     } catch (error) {
       if (epoch === this.epoch) this.fail(error);
+      return false;
+    }
+  }
+  private async command(id: string, command: string, value?: number | boolean) {
+    if (!this.hass || this.busy || this.draft.dirty) return false;
+    this.busy = true;
+    this.error = "";
+    try {
+      return await this.requestCommand(id, command, value);
+    } finally {
+      this.busy = false;
+    }
+  }
+  private roomState(roomId: string) {
+    const room = this.draft.config.rooms[roomId];
+    const entries = Object.entries(room?.ventilations ?? {});
+    const states = entries.map(([id]) => this.snapshot?.status[id]);
+    const on = states.some((state) => state?.state === "on");
+    const unavailable = states.some(
+      (state) => !state || !["on", "off"].includes(state.state ?? ""),
+    );
+    const representative =
+      states.find((state) => state?.reason === "manual_pause") ??
+      states.find((state) => state?.state === "on") ??
+      states[0];
+    return {
+      room,
+      entries,
+      on,
+      unavailable,
+      description: unavailable
+        ? this.t("unavailable")
+        : this.reason(representative?.reason ?? "idle"),
+    };
+  }
+  private roomCommand(
+    roomId: string,
+    requestedAction?: "turn_on" | "turn_off",
+    duringBatch = false,
+  ) {
+    const state = this.roomState(roomId);
+    const action = requestedAction ?? (state.on ? "turn_off" : "turn_on");
+    const allowed =
+      (!this.busy || duringBatch) &&
+      !this.saving &&
+      !this.draft.dirty &&
+      state.entries.length > 0 &&
+      state.entries.every(([id, vent]) => {
+        const saved = this.snapshot?.config.rooms[roomId]?.ventilations[id];
+        const caps =
+          this.snapshot?.status[id]?.capabilities ??
+          this.snapshot?.entities.find(
+            (entity) => entity.entity_id === vent.entity_id,
+          )?.capabilities;
+        return (
+          saved?.entity_id === vent.entity_id &&
+          this.snapshot?.controllable.includes(id) &&
+          caps?.available &&
+          caps[action]
+        );
+      });
+    return {
+      action,
+      allowed,
+      targets: state.entries.map(([id, vent]) => ({
+        id,
+        entityId: vent.entity_id,
+      })),
+    };
+  }
+  private async toggleRoom(roomId: string) {
+    const plan = this.roomCommand(roomId);
+    if (!plan.allowed) return;
+    const epoch = this.epoch;
+    this.busy = true;
+    this.error = "";
+    try {
+      // Preserve the chosen direction and lock controls for the entire batch.
+      // Recheck the latest permissions/capabilities and stop on first failure.
+      for (const target of plan.targets) {
+        const current = this.roomCommand(roomId, plan.action, true);
+        const sameAssignments =
+          current.targets.length === plan.targets.length &&
+          plan.targets.every((original) =>
+            current.targets.some(
+              (candidate) =>
+                candidate.id === original.id &&
+                candidate.entityId === original.entityId,
+            ),
+          );
+        if (epoch !== this.epoch || !current.allowed || !sameAssignments)
+          return;
+        if (!(await this.requestCommand(target.id, plan.action))) return;
+      }
     } finally {
       this.busy = false;
     }
@@ -346,9 +451,11 @@ export class HavoPanel extends LitElement {
       0,
       Math.ceil(((state.pause_until ?? state.deadline ?? 0) - this.now) / 60),
     );
-    return html`<article class="card" data-vent=${id}>
-      <div class="card-head">
-        <ha-icon icon="mdi:fan"></ha-icon>
+    return html`<article class="card ventilation-control" data-vent=${id}>
+      <div class="card-head" data-state=${state.state ?? "unavailable"}>
+        <ha-icon
+          icon=${state.state === "on" ? "mdi:fan" : "mdi:fan-off"}
+        ></ha-icon>
         <div>
           <h3>${vent.name || entity?.name || vent.entity_id}</h3>
           <small
@@ -384,32 +491,49 @@ export class HavoPanel extends LitElement {
             ${this.t("minutes")}
           </p>`
         : nothing}
-      <div class="row">
-        <button
-          ?disabled=${disabled || !caps?.available || !caps.turn_on}
-          @click=${() => this.command(id, "turn_on")}
+      <div class="control-actions">
+        <div class="row">
+          <button
+            ?disabled=${disabled || !caps?.available || !caps.turn_on}
+            @click=${() => this.command(id, "turn_on")}
+          >
+            <ha-icon icon="mdi:fan"></ha-icon>${this.t("turnOn")}</button
+          ><button
+            ?disabled=${disabled || !caps?.available || !caps.turn_off}
+            @click=${() => this.command(id, "turn_off")}
+          >
+            <ha-icon icon="mdi:fan-off"></ha-icon>${this.t("turnOff")}</button
+          ><button
+            ?disabled=${disabled || !vent.enabled}
+            @click=${() => this.command(id, "resume")}
+          >
+            ${this.t("resume")}</button
+          ><button
+            class="icon-button"
+            aria-label=${this.t("native")}
+            title=${this.t("native")}
+            @click=${() => this.native(vent.entity_id)}
+          >
+            <ha-icon icon="mdi:open-in-new"></ha-icon>
+          </button>
+        </div>
+        <label class="check"
+          ><input
+            type="checkbox"
+            .checked=${vent.enabled}
+            ?disabled=${disabled}
+            @change=${(event: Event) =>
+              this.command(
+                id,
+                "automation",
+                (event.target as HTMLInputElement).checked,
+              )}
+          />${this.t("enabled")}</label
         >
-          ${this.t("turnOn")}</button
-        ><button
-          ?disabled=${disabled || !caps?.available || !caps.turn_off}
-          @click=${() => this.command(id, "turn_off")}
-        >
-          ${this.t("turnOff")}</button
-        ><button
-          ?disabled=${disabled || !vent.enabled}
-          @click=${() => this.command(id, "resume")}
-        >
-          ${this.t("resume")}</button
-        ><button
-          aria-label=${this.t("native")}
-          title=${this.t("native")}
-          @click=${() => this.native(vent.entity_id)}
-        >
-          <ha-icon icon="mdi:open-in-new"></ha-icon>
-        </button>
       </div>
+
       ${caps?.speed
-        ? html`<label style="margin-top:16px"
+        ? html`<label class="speed-control"
             >${this.t("speed")}<input
               aria-label=${this.t("speed")}
               type="range"
@@ -426,19 +550,6 @@ export class HavoPanel extends LitElement {
                 )}
           /></label>`
         : nothing}
-      <label class="check"
-        ><input
-          type="checkbox"
-          .checked=${vent.enabled}
-          ?disabled=${disabled}
-          @change=${(event: Event) =>
-            this.command(
-              id,
-              "automation",
-              (event.target as HTMLInputElement).checked,
-            )}
-        />${this.t("enabled")}</label
-      >
       <div class="metrics">
         ${this.metric(
           "indoorTemperature",
@@ -543,7 +654,7 @@ export class HavoPanel extends LitElement {
           (e) => e.entity_id === vent.entity_id,
         )?.capabilities;
         return html`<section class="card">
-          <div class="grid">
+          <div class="field-grid">
             <label
               >${this.t("name")}<input
                 maxlength="100"
@@ -598,7 +709,7 @@ export class HavoPanel extends LitElement {
   private automation(room: Room) {
     return html`<section class="card">
         <h3>${this.t("sensors")}</h3>
-        <div class="grid">
+        <div class="field-grid">
           ${this.picker(
             "indoorTemperature",
             room.temperature_entity_id,
@@ -647,7 +758,7 @@ export class HavoPanel extends LitElement {
             </select></label
           >
           <h4>${this.t("thresholds")}</h4>
-          <div class="grid">
+          <div class="field-grid">
             ${vent.mode === "temperature"
               ? html`${this.number(
                   vent,
@@ -683,7 +794,7 @@ export class HavoPanel extends LitElement {
                 >
                 <p class="help">${this.t("humidityTimeoutHelp")}</p>
                 ${vent.humidity_timeout_enabled
-                  ? html`<div class="grid">
+                  ? html`<div class="field-grid">
                       ${this.number(vent, "humidity_timeout", 1, 1440, 60)}
                     </div>`
                   : nothing}`
@@ -705,7 +816,7 @@ export class HavoPanel extends LitElement {
                     }}
                   />${this.t("backgroundEnabled")}</label
                 >
-                <div class="grid">
+                <div class="field-grid">
                   ${vent.background > 0
                     ? this.number(vent, "background", 1, 99)
                     : nothing}${this.number(
@@ -723,7 +834,7 @@ export class HavoPanel extends LitElement {
               </p>`}
           <details>
             <summary>${this.t("timings")}</summary>
-            <div class="grid">
+            <div class="field-grid">
               ${this.number(vent, "min_on", 0, 86400)}${this.number(
                 vent,
                 "min_off",
@@ -741,25 +852,44 @@ export class HavoPanel extends LitElement {
       this.snapshot?.areas.find((area) => area.id === this.roomId)?.name ??
       this.roomId;
     if (!this.roomId)
-      return html`<div class="empty">
+      return html`<div class="empty-state welcome">
         <ha-icon icon="mdi:fan"></ha-icon>
-        <p>${this.t("chooseRoom")}</p>
+        <h2 class="view-title" tabindex="-1">${this.t("chooseRoom")}</h2>
+        <p>${this.t("chooseRoomHelp")}</p>
+        ${!this.snapshot?.admin
+          ? html`<p class="help">${this.t("readonly")}</p>`
+          : nothing}
       </div>`;
     const tabs: Tab[] = this.snapshot?.admin
       ? ["control", "ventilations", "automation", "settings"]
       : ["control"];
-    return html`<button
-        class="back"
-        @click=${() =>
-          this.navigate(() => {
-            this.roomId = "";
-          })}
-      >
-        ${this.t("back")}
-      </button>
-      <h2>${name}</h2>
+    return html`<div class="room-heading">
+        <button
+          class="icon-button back back-button"
+          aria-label=${this.t("back")}
+          @click=${() =>
+            this.navigate(() => {
+              this.roomId = "";
+            })}
+        >
+          <ha-icon icon="mdi:arrow-left"></ha-icon>
+        </button>
+        <h2 class="view-title grow" tabindex="-1">${name}</h2>
+      </div>
       ${room
-        ? html`<div class="tabs" role="tablist" aria-label=${name}>
+        ? html`<div class="room-summary">
+              <span class="badge"
+                >${this.roomState(this.roomId).description}</span
+              ><span class="badge"
+                >${Object.keys(room.ventilations).length}
+                ${this.t(
+                  Object.keys(room.ventilations).length === 1
+                    ? "ventilationCount"
+                    : "ventilationsCount",
+                )}</span
+              >
+            </div>
+            <nav class="room-tabs tabs" role="tablist" aria-label=${name}>
               ${tabs.map(
                 (tab) =>
                   html`<button
@@ -802,9 +932,10 @@ export class HavoPanel extends LitElement {
                     ${this.t(tab)}
                   </button>`,
               )}
-            </div>
+            </nav>
             <div
               id="room-panel"
+              class="room-panel"
               role="tabpanel"
               aria-labelledby=${`tab-${this.tab}`}
             >
@@ -860,7 +991,10 @@ export class HavoPanel extends LitElement {
                             </button>`}
                       </section>`}
             </div>`
-        : html`<p class="muted">${this.t("noVentilations")}</p>
+        : html`<div class="empty-state">
+            <ha-icon icon="mdi:fan"></ha-icon>
+            <h3>${this.t("unconfigured")}</h3>
+            <p>${this.t("configureRoomHelp")}</p>
             ${this.snapshot?.admin
               ? html`<button
                   class="primary"
@@ -872,13 +1006,14 @@ export class HavoPanel extends LitElement {
                 >
                   ${this.t("configureRoom")}
                 </button>`
-              : nothing}`}`;
+              : html`<p class="help">${this.t("readonly")}</p>`}
+          </div>`}`;
   }
   private generalView() {
     const config = this.draft.config;
-    return html`<main class="settings-list">
-      <h2>${this.t("general")}</h2>
-      <section class="card">
+    return html`<div class="global-settings settings-list">
+      <h2 class="view-title" tabindex="-1">${this.t("general")}</h2>
+      <section class="settings-group">
         <h3>${this.t("sources")}</h3>
         <p class="help">${this.t("sourceHelp")}</p>
         ${this.picker(
@@ -904,107 +1039,197 @@ export class HavoPanel extends LitElement {
           },
         )}
       </section>
-    </main>`;
+    </div>`;
   }
   render() {
+    const showSidebarButton =
+      (this.narrow || this.hass?.dockedSidebar === "always_hidden") &&
+      !this.hass?.kioskMode &&
+      this.hass?.auth?.external?.config?.hasSidebar !== true;
     const areas = this.snapshot?.areas ?? [];
     const allAreas = [
       ...areas,
       ...Object.keys(this.draft.config.rooms)
         .filter((id) => !areas.some((area) => area.id === id))
         .map((id) => ({ id, name: id })),
-    ];
-    const filtered = allAreas.filter((area) =>
-      area.name.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()),
+    ].sort(
+      (left, right) =>
+        Number(Boolean(this.draft.config.rooms[right.id])) -
+        Number(Boolean(this.draft.config.rooms[left.id])),
     );
-    return html`<div class="shell">
-      <header>
-        <ha-icon icon="mdi:fan"></ha-icon>
-        <div>
-          <h1>Havo</h1>
-          <p>${this.t("intro")}</p>
+    const filtered = allAreas.filter((area) =>
+      matchesEntity({ entity_id: area.id, name: area.name }, this.query),
+    );
+    return html`<div class="shell" lang=${resolveLanguage(this.locale)}>
+      <header class="app-header">
+        <div class="brand" title=${this.t("intro")}>
+          ${showSidebarButton
+            ? html`<button
+                class="icon-button sidebar-toggle"
+                type="button"
+                aria-label=${this.t("openSidebar")}
+                title=${this.t("openSidebar")}
+                @click=${() =>
+                  this.dispatchEvent(
+                    new CustomEvent("hass-toggle-menu", {
+                      detail: { open: true },
+                      bubbles: true,
+                      composed: true,
+                    }),
+                  )}
+              ><ha-icon icon="mdi:menu" aria-hidden="true"></ha-icon></button>`
+            : nothing}
+          <ha-icon icon="mdi:fan"></ha-icon>
+          <h1 aria-label=${`Havo — ${this.t("intro")}`}>Havo</h1>
         </div>
-        <span class="connection"
-          >${this.t(this.snapshot ? "connected" : "disconnected")}</span
-        >
+        <nav class="top-nav" aria-label="Havo">
+          <button
+            aria-current=${!this.general ? "page" : nothing}
+            @click=${() =>
+              this.navigate(() => {
+                this.general = false;
+              })}
+          >
+            ${this.t("rooms")}
+          </button>
+          ${this.snapshot?.admin
+            ? html`<button
+                aria-current=${this.general ? "page" : nothing}
+                @click=${() =>
+                  this.navigate(() => {
+                    this.general = true;
+                  })}
+              >
+                ${this.t("general")}
+              </button>`
+            : nothing}
+        </nav>
       </header>
-      <nav aria-label="Havo">
-        <button
-          class=${!this.general ? "selected" : ""}
-          @click=${() =>
-            this.navigate(() => {
-              this.general = false;
-            })}
-        >
-          ${this.t("rooms")}</button
-        >${this.snapshot?.admin
-          ? html`<button
-              class=${this.general ? "selected" : ""}
-              @click=${() =>
-                this.navigate(() => {
-                  this.general = true;
-                })}
-            >
-              ${this.t("general")}
-            </button>`
-          : nothing}
-      </nav>
-      ${this.error || this.draft.conflict
-        ? html`<div role="alert" class="notice error">
-            ${this.t(
-              (this.draft.conflict ? "conflict" : this.error) as TranslationKey,
-            )}
-          </div>`
-        : nothing}${this.message
-        ? html`<div class="notice" role="status">
-            ${this.t(this.message as TranslationKey)}
-          </div>`
-        : nothing}
-      ${keyed(
-        this.resetKey,
-        this.general && this.snapshot?.admin
-          ? this.generalView()
-          : html`<div class="layout ${this.roomId ? "has-room" : ""}">
-              <aside>
-                <input
-                  type="search"
-                  aria-label=${this.t("search")}
-                  placeholder=${this.t("search")}
-                  .value=${this.query}
-                  @input=${(event: Event) => {
-                    this.query = (event.target as HTMLInputElement).value;
-                  }}
-                />${filtered.map(
-                  (area) =>
-                    html`<button
-                      class="room ${this.roomId === area.id ? "selected" : ""}"
-                      @click=${() =>
-                        this.navigate(() => {
-                          this.roomId = area.id;
-                          this.otherRooms = false;
-                          this.tab = "control";
-                        })}
-                    >
-                      ${area.name}<small
-                        >${Object.keys(
-                          this.draft.config.rooms[area.id]?.ventilations ?? {},
-                        ).length}
-                        ${this.t("configured")}</small
-                      >
-                    </button>`,
-                )}${!allAreas.length
-                  ? html`<p class="help">${this.t("noRooms")}</p>`
-                  : nothing}
-              </aside>
-              <main>${this.roomView()}</main>
-            </div>`,
-      )}
+      <div class="content">
+        <main>
+          ${this.error || this.draft.conflict
+            ? html`<div role="alert" class="notice error">
+                <ha-icon icon="mdi:alert-circle-outline"></ha-icon>
+                <span class="grow"
+                  >${this.t(
+                    (this.draft.conflict
+                      ? "conflict"
+                      : this.error) as TranslationKey,
+                  )}</span
+                >
+              </div>`
+            : nothing}
+          ${this.message
+            ? html`<div class="notice" role="status">
+                <ha-icon icon="mdi:check-circle-outline"></ha-icon>${this.t(
+                  this.message as TranslationKey,
+                )}
+              </div>`
+            : nothing}
+          ${!this.snapshot
+            ? html`<p class="notice" role="status">
+                ${this.t("disconnected")}
+              </p>`
+            : nothing}
+          ${keyed(
+            this.resetKey,
+            this.general && this.snapshot?.admin
+              ? this.generalView()
+              : html`<div
+                  class="workspace layout ${this.roomId ? "has-room" : ""}"
+                >
+                  <aside class="room-rail" aria-label=${this.t("rooms")}>
+                    <div class="rail-heading">
+                      <h2 tabindex="-1">${this.t("rooms")}</h2>
+                      <span class="count">${allAreas.length}</span>
+                    </div>
+                    <label class="rail-search"
+                      ><span>${this.t("search")}</span
+                      ><input
+                        type="search"
+                        .value=${this.query}
+                        @input=${(event: Event) => {
+                          this.query = (event.target as HTMLInputElement).value;
+                        }}
+                    /></label>
+                    <div class="room-list">
+                      ${filtered.map((area) => {
+                        const state = this.roomState(area.id);
+                        const plan = this.roomCommand(area.id);
+                        return html`<div
+                          class="room-item"
+                          ?data-active=${this.roomId === area.id}
+                          data-state=${state.unavailable
+                            ? "unavailable"
+                            : state.on
+                              ? "on"
+                              : "off"}
+                        >
+                          <button
+                            class="room-link room"
+                            aria-label=${area.name}
+                            aria-current=${this.roomId === area.id
+                              ? "page"
+                              : nothing}
+                            @click=${() =>
+                              this.navigate(() => {
+                                this.roomId = area.id;
+                                this.otherRooms = false;
+                                this.tab = "control";
+                              })}
+                          >
+                            <ha-icon
+                              icon=${state.room
+                                ? state.on
+                                  ? "mdi:fan"
+                                  : "mdi:fan-off"
+                                : "mdi:plus-circle-outline"}
+                            ></ha-icon>
+                            <span
+                              ><strong>${area.name}</strong
+                              ><small class="room-meta"
+                                >${state.room
+                                  ? `${state.entries.length} ${this.t(state.entries.length === 1 ? "ventilationCount" : "ventilationsCount")} · ${state.description}`
+                                  : this.t("unconfigured")}</small
+                              ></span
+                            >
+                          </button>
+                          ${state.room
+                            ? html`<button
+                                class="icon-button quick-toggle"
+                                aria-pressed=${String(state.on)}
+                                aria-label=${`${this.t(state.on ? "turnOff" : "turnOn")} · ${area.name}`}
+                                title=${this.t(state.on ? "turnOff" : "turnOn")}
+                                ?disabled=${!plan.allowed}
+                                @click=${() => this.toggleRoom(area.id)}
+                              >
+                                <ha-icon icon="mdi:power"></ha-icon>
+                              </button>`
+                            : nothing}
+                        </div>`;
+                      })}
+                    </div>
+                    ${!allAreas.length
+                      ? html`<p class="empty">${this.t("noRooms")}</p>`
+                      : nothing}
+                    ${allAreas.length && !filtered.length
+                      ? html`<p class="empty" role="status">
+                          ${this.t("noRoomsMatch")}
+                        </p>`
+                      : nothing}
+                  </aside>
+                  <div class="room-detail">${this.roomView()}</div>
+                </div>`,
+          )}
+        </main>
+      </div>
       ${this.draft.dirty && this.snapshot?.admin
-        ? html`<footer>
-            <span>${this.t("unsaved")}</span
-            ><button ?disabled=${this.saving} @click=${this.discard}>
-              ${this.t("discard")}</button
-            ><button
+        ? html`<footer class="savebar" role="status">
+            <span class="grow">${this.t("unsaved")}</span>
+            <button ?disabled=${this.saving} @click=${this.discard}>
+              ${this.t("discard")}
+            </button>
+            <button
               class="primary"
               ?disabled=${this.saving || this.draft.conflict}
               @click=${this.save}
